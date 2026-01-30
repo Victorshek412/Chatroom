@@ -1,17 +1,28 @@
 import express from "express"; // Import Express framework
 import dotenv from "dotenv"; // Load environment variables from .env file
-
+import path from "path"; // Import path module for handling file paths
 import authRoutes from "./routes/auth.route.js"; // Import authentication routes
 import messageRoutes from "./routes/message.route.js"; // Import message routes
 
 dotenv.config(); // Load environment variables
 
 const app = express();
+const __dirname = path.resolve(); // Get current directory path
 
 const PORT = process.env.PORT || 3000; // Use PORT from environment or default to 3000
 
 app.use("/api/auth", authRoutes); // Mount authentication routes at /api/auth
 app.use("/api/messages", messageRoutes); // Mount message routes at /api/messages
+
+// make ready for deployment
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(path.join(__dirname, "../frontend/dist")));
+  // Serve static files from React build
+
+  app.get("*", (_, res) => {
+    res.sendFile(path.join(__dirname, "../frontend/dist", "index.html"));
+  });
+} // Handle all other routes by serving the React app
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
