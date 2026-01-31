@@ -42,9 +42,9 @@ export const signup = async (req, res) => {
     }); // Create a new user instance
 
     if (newUser) {
-      generateToken(newUser._id, res); // A function that generate a token for
-      //new user authentication and sends it in the response
-      await newUser.save(); // Save the new user to the database
+      const savedUser = await newUser.save(); // Save the new user to the database
+      generateToken(savedUser._id, res); // A function that generate a token for
+      //new user authentication and sends it in the response cookies
 
       res.status(201).json({
         _id: newUser._id,
