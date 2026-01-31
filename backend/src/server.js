@@ -3,6 +3,7 @@ import dotenv from "dotenv"; // Load environment variables from .env file
 import path from "path"; // Import path module for handling file paths
 import authRoutes from "./routes/auth.route.js"; // Import authentication routes
 import messageRoutes from "./routes/message.route.js"; // Import message routes
+import { connectDB } from "./lib/db.js"; // Import database connection function
 
 dotenv.config(); // Load environment variables
 
@@ -10,6 +11,8 @@ const app = express();
 const __dirname = path.resolve(); // Get current directory path
 
 const PORT = process.env.PORT || 3000; // Use PORT from environment or default to 3000
+
+app.use(express.json()); // Parse JSON request bodies
 
 app.use("/api/auth", authRoutes); // Mount authentication routes at /api/auth
 app.use("/api/messages", messageRoutes); // Mount message routes at /api/messages
@@ -25,5 +28,6 @@ if (process.env.NODE_ENV === "production") {
 } // Handle all other routes by serving the React app
 
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log("Server is running on port " + PORT);
+  connectDB(); // Connect to the database when server starts
 });
