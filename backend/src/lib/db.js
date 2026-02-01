@@ -4,7 +4,7 @@ export const connectDB = async () => {
   try {
     const { MONGODB_URI } = ENV;
     if (!MONGODB_URI) {
-      throw new Error("MONGO_URI is not defined in environment variables");
+      throw new Error("MONGODB_URI is not defined in environment variables");
     } // Check if MONGO_URI is defined in environment variables
 
     const conn = await mongoose.connect(MONGODB_URI);
