@@ -1,7 +1,7 @@
 import { generateToken } from "../lib/utils.js";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
-import "dotenv/config.js";
+import { ENV } from "../lib/env.js";
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
 
 export const signup = async (req, res) => {
@@ -61,7 +61,7 @@ export const signup = async (req, res) => {
         await sendWelcomeEmail(
           savedUser.email,
           savedUser.fullName,
-          process.env.CLIENT_URL,
+          ENV.CLIENT_URL,
         );
       } catch (error) {
         console.error("Failed to send welcome email:", error);
@@ -76,6 +76,12 @@ export const signup = async (req, res) => {
 };
 export const login = async (req, res) => {
   const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ message: "Email and password are required." });
+  } // Basic validation
 
   try {
     const user = await User.findOne({ email }); // Find user by email
