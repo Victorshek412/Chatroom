@@ -1,6 +1,8 @@
 import { generateToken } from "../lib/utils.js";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
+import { ENV } from "../config/env.js";
+import { sendWelcomeEmail } from "../emails/emailHandlers.js";
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -53,7 +55,22 @@ export const signup = async (req, res) => {
         profilePicture: newUser.profilePicture,
       });
       //res.status(201).json() is used to send a response back to the client indicating that a new resource has been successfully created.
-      // todo:send a welcome email to the user
+
+      //welcome email
+      try {
+        await sendWelcomeEmail(
+          savedUser.email,
+          savedUser.fullName,
+          ENV.CLIENT_URL,
+        );
+        // 1. The function sendWelcomeEmail is called with three arguments: savedUser.email, savedUser.fullName, and ENV.CLIENT_URL.
+        // 2. savedUser.email: This is the email address of the newly created user, which is retrieved from the savedUser object after saving it to the database.
+        // 3. savedUser.fullName: This is the full name of the newly created user, also retrieved from the savedUser object.
+        // 4. ENV.CLIENT_URL: This retrieves the client URL from the environment variables (defined in src/lib/env.js), which is typically the URL of the frontend application.
+        // 5. The sendWelcomeEmail function uses these parameters to compose and send a welcome email to the new user, providing them with a personalized greeting and a link to access the client application.
+      } catch (error) {
+        console.error("Failed to send welcome email:", error);
+      }
     } else {
       res.status(400).json({ message: "Invalid user data." }); // If user creation fails, return error
     }
