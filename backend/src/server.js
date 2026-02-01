@@ -4,7 +4,7 @@ import path from "path"; // Import path module for handling file paths
 import authRoutes from "./routes/auth.route.js"; // Import authentication routes
 import messageRoutes from "./routes/message.route.js"; // Import message routes
 import { connectDB } from "./lib/db.js"; // Import database connection function
-import { ENV } from "./config/env.js"; // Import environment variables
+import { ENV } from "./lib/env.js"; // Import environment variables
 
 const app = express();
 const __dirname = path.resolve(); // Get current directory path
