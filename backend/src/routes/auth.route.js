@@ -3,8 +3,6 @@ import { signup } from "../controllers/auth.controller.js";
 
 const router = express.Router();
 
-const PORT = process.env.PORT || 3000;
-
 router.post("/signup", signup);
 
 router.get("/login", (req, res) => {
