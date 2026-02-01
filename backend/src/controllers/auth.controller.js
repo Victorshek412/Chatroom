@@ -1,7 +1,7 @@
 import { generateToken } from "../lib/utils.js";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
-import { ENV } from "../config/env.js";
+import "dotenv/config.js";
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
 
 export const signup = async (req, res) => {
@@ -61,13 +61,8 @@ export const signup = async (req, res) => {
         await sendWelcomeEmail(
           savedUser.email,
           savedUser.fullName,
-          ENV.CLIENT_URL,
+          process.env.CLIENT_URL,
         );
-        // 1. The function sendWelcomeEmail is called with three arguments: savedUser.email, savedUser.fullName, and ENV.CLIENT_URL.
-        // 2. savedUser.email: This is the email address of the newly created user, which is retrieved from the savedUser object after saving it to the database.
-        // 3. savedUser.fullName: This is the full name of the newly created user, also retrieved from the savedUser object.
-        // 4. ENV.CLIENT_URL: This retrieves the client URL from the environment variables (defined in src/lib/env.js), which is typically the URL of the frontend application.
-        // 5. The sendWelcomeEmail function uses these parameters to compose and send a welcome email to the new user, providing them with a personalized greeting and a link to access the client application.
       } catch (error) {
         console.error("Failed to send welcome email:", error);
       }
@@ -78,4 +73,35 @@ export const signup = async (req, res) => {
     console.log("error in sign up controller:", error);
     res.status(500).json({ message: "Internal Server error." }); // Handle server errors
   }
+};
+export const login = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await User.findOne({ email }); // Find user by email
+    if (!user) {
+      return res.status(400).json({ message: "Invalid email or password." });
+    } // If user not found, return error, do not say which one is incorrect for preventing enumeration
+
+    const isPasswordMatch = await bcrypt.compare(password, user.password); // Compare provided password with hashed password
+    if (!isPasswordMatch) {
+      return res.status(400).json({ message: "Invalid email or password." });
+    } // If password does not match, return error
+
+    generateToken(user._id, res); // Generate token for authenticated user
+
+    res.status(200).json({
+      _id: user._id,
+      fullName: user.fullName,
+      email: user.email,
+      profilePicture: user.profilePicture,
+    }); // Send user data in response
+  } catch (error) {
+    console.error("error in login controller:", error);
+    res.status(500).json({ message: "Internal server error." }); // Handle server errors
+  }
+};
+export const logout = (req, res) => {
+  res.cookie("token", "", { maxAge: 0 }); // Clear the token cookie by setting its maxAge to 0
+  res.status(200).json({ message: "Logged out successfully." }); // Send success response
 };
