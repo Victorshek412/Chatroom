@@ -1,5 +1,5 @@
 import mongoose from "mongoose"; // Import Mongoose for MongoDB interaction
-import { ENV } from "../config/env.js"; // Import environment variables
+import { ENV } from "./env.js"; // Import environment variables
 export const connectDB = async () => {
   try {
     const { MONGODB_URI } = ENV;
