@@ -3,6 +3,7 @@ import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import { ENV } from "../lib/env.js";
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
+import cloudinary from "../lib/cloudinary.js";
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -110,4 +111,28 @@ export const login = async (req, res) => {
 export const logout = (req, res) => {
   res.cookie("token", "", { maxAge: 0 }); // Clear the token cookie by setting its maxAge to 0
   res.status(200).json({ message: "Logged out successfully." }); // Send success response
+};
+export const updateProfile = async (req, res) => {
+  try {
+    const { profilePic } = req.body; // Get profile picture data from request body
+    if (!profilePic)
+      return res.status(400).json({ message: "No profile picture provided." }); // Validate input
+    const userId = req.user._id; // Get user ID from authenticated user (set by protectRoute middleware)
+
+    // Upload profile picture to Cloudinary
+    const uploadResult = await cloudinary.uploader.upload(profilePic);
+    // Update user's profile picture URL in the database
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { profilePicture: uploadResult.secure_url },
+      { new: true },
+    ).select("-password"); // Exclude password from returned document
+    // Find user by ID and update profilePicture field with new URL
+
+    res.status(200).json(updatedUser); // Send updated user data in response
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    res.status(500).json({ message: "Internal server error." }); // Handle server errors
+  }
 };
