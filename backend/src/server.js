@@ -1,4 +1,5 @@
 import express from "express"; // Import Express framework
+import cookieParser from "cookie-parser"; // Import cookie-parser middleware
 import path from "path"; // Import path module for handling file paths
 
 import authRoutes from "./routes/auth.route.js"; // Import authentication routes
@@ -12,6 +13,7 @@ const __dirname = path.resolve(); // Get current directory path
 const PORT = ENV.PORT || 3000; // Use PORT from environment or default to 3000
 
 app.use(express.json()); // Parse JSON request bodies
+app.use(cookieParser()); // Parse cookies from incoming requests
 
 app.use("/api/auth", authRoutes); // Mount authentication routes at /api/auth
 app.use("/api/messages", messageRoutes); // Mount message routes at /api/messages
