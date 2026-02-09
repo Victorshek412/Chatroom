@@ -19,7 +19,7 @@ router.post("/logout", logout);
 // Using POST helps to keep this information out of the URL, which can be logged or cached, enhancing security.
 // Additionally, POST requests are designed for actions that change server state (like creating a new user), whereas GET requests are intended for retrieving data without side effects.
 
-router.put("/update-profile", updateProfile);
+router.put("/update-profile", protectRoute, updateProfile);
 
 router.get("/check-auth", protectRoute, (req, res) => {
   res.status(200).json({ message: "You are logged in.", user: req.user });

@@ -127,7 +127,8 @@ export const updateProfile = async (req, res) => {
       userId,
       { profilePicture: uploadResult.secure_url },
       { new: true },
-    ); // Find user by ID and update profilePicture field with new URL
+    ).select("-password"); // Exclude password from returned document
+    // Find user by ID and update profilePicture field with new URL
 
     res.status(200).json(updatedUser); // Send updated user data in response
   } catch (error) {
