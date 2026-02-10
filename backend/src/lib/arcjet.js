@@ -32,7 +32,6 @@ const aj = arcjet({
       max: 100,
       interval: 60, // seconds
     }),
-    }),
   ],
 });
 
