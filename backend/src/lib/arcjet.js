@@ -17,12 +17,13 @@ const aj = arcjet({
         //"CATEGORY:PREVIEW", // Link previews e.g. Slack, Discord
       ],
     }),
-    // Create a token bucket rate limit. Other algorithms are supported.
+    // Create a sliding window rate limit. Other algorithms are supported.
     slidingWindow({
       mode: "LIVE", // Blocks requests. Use "DRY_RUN" to log only
-      // Max 1000 requests per minute per IP
+      // Max 100 requests per minute per IP
       max: 100,
       interval: 60, // seconds
+    }),
     }),
   ],
 });
