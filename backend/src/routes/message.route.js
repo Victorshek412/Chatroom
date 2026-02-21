@@ -6,11 +6,13 @@ import {
   sendMessage,
 } from "../controllers/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
+import { arcjetProtection } from "../middleware/arcjet.middleware.js";
+
 const router = express.Router();
 
 // the middlewares execute in order - so requests fet rate-litmited first, then authenticated.
 // this is actually more efficient since unauthenticated requests get blocked by rate limiting before hitting the auth middleware.
-router.use(arcjetprotection, protectRoute); // Apply ARCJET protection and authentication middleware to all routes in this router   
+router.use(arcjetProtection, protectRoute); // Apply ARCJET protection and authentication middleware to all routes in this router
 router.get("/contacts", getAllContacts);
 router.get("/chats", getChatPartners);
 router.get("/:id", getMessageByUserId);

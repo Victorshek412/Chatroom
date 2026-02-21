@@ -13,8 +13,9 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
       required: true,
     },
     text: {
-      type: String, // Message text content
-      required: true,
+      type: String,
+      trim: true,
+      maxlength: 2000, // Optional text content of the message with a maximum length of 2000 characters
     },
     image: {
       type: String, // Optional image URL associated with the message
