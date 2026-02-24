@@ -25,7 +25,7 @@ router.post("/logout", logout);
 
 router.put("/update-profile", protectRoute, updateProfile);
 
-router.get("/check-auth", protectRoute, (req, res) => {
+router.get("/check", protectRoute, (req, res) => {
   res.status(200).json({ message: "You are logged in.", user: req.user });
 });
 // The /check route is protected by the protectRoute middleware, which ensures that only authenticated users can access it.
