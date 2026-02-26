@@ -1,6 +1,7 @@
 import express from "express"; // Import Express framework
 import cookieParser from "cookie-parser"; // Import cookie-parser middleware
 import path from "path"; // Import path module for handling file paths
+import cors from "cors"; // Import CORS middleware to enable Cross-Origin Resource Sharing
 
 import authRoutes from "./routes/auth.route.js"; // Import authentication routes
 import messageRoutes from "./routes/message.route.js"; // Import message routes
@@ -13,6 +14,7 @@ const __dirname = path.resolve(); // Get current directory path
 const PORT = ENV.PORT || 3000; // Use PORT from environment or default to 3000
 
 app.use(express.json()); // Parse JSON request bodies
+app.use(cors({ origin: ENV.CLIENT_URL, credentials: true })); // Enable CORS for the specified client URL with credentials support
 app.use(cookieParser()); // Parse cookies from incoming requests
 
 app.use("/api/auth", authRoutes); // Mount authentication routes at /api/auth
