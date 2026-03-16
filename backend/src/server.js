@@ -13,7 +13,7 @@ const __dirname = path.resolve(); // Get current directory path
 
 const PORT = ENV.PORT || 3000; // Use PORT from environment or default to 3000
 
-app.use(express.json()); // Parse JSON request bodies
+app.use(express.json({ limit: "5mb" })); // req.body will be parsed as JSON with a size limit of 5mb
 app.use(cors({ origin: ENV.CLIENT_URL, credentials: true })); // Enable CORS for the specified client URL with credentials support
 app.use(cookieParser()); // Parse cookies from incoming requests
 
