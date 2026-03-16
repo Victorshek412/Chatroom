@@ -30,3 +30,6 @@ function ActiveTabSwitch() {
   );
 }
 export default ActiveTabSwitch;
+// This component is used to switch between the chats and contacts tabs in the chat sidebar.
+// It uses the activeTab state from the chat store to determine which tab is currently active
+//  and applies different styles accordingly. When a tab is clicked, it updates the activeTab state in the chat store.
