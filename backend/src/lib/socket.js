@@ -23,7 +23,7 @@ io.on("connection", (socket) => {
   console.log("A user connected", socket.user.fullName);
 
   const userId = socket.userId;
-  
+
   // Store multiple socket IDs per user (for multi-tab support)
   if (!userSocketMap[userId]) {
     userSocketMap[userId] = new Set();
@@ -36,15 +36,15 @@ io.on("connection", (socket) => {
   // with socket.on we listen for events from clients
   socket.on("disconnect", () => {
     console.log("A user disconnected", socket.user.fullName);
-    
+
     // Remove only this socket ID
     userSocketMap[userId].delete(socket.id);
-    
+
     // Remove user entry only if no more active sockets
     if (userSocketMap[userId].size === 0) {
       delete userSocketMap[userId];
     }
-    
+
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
   });
 });
