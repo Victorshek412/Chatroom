@@ -7,8 +7,8 @@ import authRoutes from "./routes/auth.route.js"; // Import authentication routes
 import messageRoutes from "./routes/message.route.js"; // Import message routes
 import { connectDB } from "./lib/db.js"; // Import database connection function
 import { ENV } from "./lib/env.js"; // Import environment variables
+import { app, server } from "./lib/socket.js";
 
-const app = express();
 const __dirname = path.resolve(); // Get current directory path
 
 const PORT = ENV.PORT || 3000; // Use PORT from environment or default to 3000
@@ -44,7 +44,7 @@ if (ENV.NODE_ENV === "production") {
   });
 } // Handle all other routes by serving the React app
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log("Server is running on port " + PORT);
   connectDB(); // Connect to the database when server starts
 });
