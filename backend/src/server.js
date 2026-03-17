@@ -20,6 +20,20 @@ app.use(cookieParser()); // Parse cookies from incoming requests
 app.use("/api/auth", authRoutes); // Mount authentication routes at /api/auth
 app.use("/api/messages", messageRoutes); // Mount message routes at /api/messages
 
+// Error handler for oversized JSON bodies and invalid JSON
+app.use((err, req, res, next) => {
+  if (
+    err.type === "entity.too.large" ||
+    err.status === 413 ||
+    (err instanceof SyntaxError && err.status === 400)
+  ) {
+    return res.status(413).json({
+      error: "Payload too large: request body must be <= 5mb",
+    });
+  }
+  next(err);
+});
+
 // make ready for deployment
 if (ENV.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "../frontend/dist")));

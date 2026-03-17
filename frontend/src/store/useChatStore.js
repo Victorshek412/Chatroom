@@ -60,6 +60,12 @@ export const useChatStore = create((set, get) => ({
     const { selectedUser, messages } = get();
     const { authUser } = useAuthStore.getState();
 
+    // Guard against null authUser or selectedUser
+    if (!authUser || !selectedUser) {
+      toast.error("User information is missing");
+      return;
+    }
+
     const tempId = `temp-${Date.now()}`;
 
     const optimisticMessage = {
@@ -71,7 +77,8 @@ export const useChatStore = create((set, get) => ({
       createdAt: new Date().toISOString(),
       isOptimistic: true, // flag to identify optimistic messages (optional)
     };
-    // immediately update the UI by adding the message    set({ messages: [...messages, optimisticMessage] });
+    // immediately update the UI by adding the message
+    set({ messages: [...messages, optimisticMessage] });
 
     try {
       const res = await axiosInstance.post(
