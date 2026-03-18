@@ -4,7 +4,7 @@ import { useChatStore } from "../store/useChatStore";
 import ChatHeader from "./ChatHeader";
 import NoChatHistoryPlaceholder from "./NoChatHistoryPlaceholder";
 import MessageInput from "./MessageInput";
-import MessagesLoadingSkeleton from "./MessageLoadingSkeleton";
+import MessageLoadingSkeleton from "./MessageLoadingSkeleton";
 
 function ChatContainer() {
   const {
@@ -76,7 +76,7 @@ function ChatContainer() {
             <div ref={messageEndRef} />
           </div>
         ) : isMessagesLoading ? (
-          <MessagesLoadingSkeleton />
+          <MessageLoadingSkeleton />
         ) : (
           <NoChatHistoryPlaceholder name={selectedUser.fullName} />
         )}

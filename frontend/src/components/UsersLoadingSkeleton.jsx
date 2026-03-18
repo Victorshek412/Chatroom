@@ -1,35 +1,23 @@
-import { useChatStore } from "../store/useChatStore";
-
-function ActiveTabSwitch() {
-  const { activeTab, setActiveTab } = useChatStore();
-
+function UsersLoadingSkeleton() {
   return (
-    <div className="tabs tabs-boxed bg-transparent p-2 m-2">
-      <button
-        onClick={() => setActiveTab("chats")}
-        className={`tab ${
-          activeTab === "chats"
-            ? "bg-cyan-500/20 text-cyan-400"
-            : "text-slate-400"
-        }`}
-      >
-        Chats
-      </button>
-
-      <button
-        onClick={() => setActiveTab("contacts")}
-        className={`tab ${
-          activeTab === "contacts"
-            ? "bg-cyan-500/20 text-cyan-400"
-            : "text-slate-400"
-        }`}
-      >
-        Contacts
-      </button>
+    <div className="space-y-2 p-4">
+      {[...Array(6)].map((_, index) => (
+        <div
+          key={index}
+          className="bg-cyan-500/10 p-4 rounded-lg animate-pulse"
+        >
+          <div className="flex items-center gap-3">
+            <div className="avatar">
+              <div className="size-12 rounded-full bg-slate-700"></div>
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="h-4 bg-slate-700 rounded w-3/4"></div>
+              <div className="h-3 bg-slate-700 rounded w-1/2"></div>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
-export default ActiveTabSwitch;
-// This component is used to switch between the chats and contacts tabs in the chat sidebar.
-// It uses the activeTab state from the chat store to determine which tab is currently active
-//  and applies different styles accordingly. When a tab is clicked, it updates the activeTab state in the chat store.
+export default UsersLoadingSkeleton;
