@@ -1,4 +1,5 @@
 import cloudinary from "../lib/cloudinary.js";
+import { getReceiverSocketIds, io } from "../lib/socket.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
 
@@ -74,7 +75,10 @@ export const sendMessage = async (req, res) => {
     await newMessage.save(); // Save the new message document to the database
     // what is await ? The await keyword is used to wait for a Promise to resolve. In this case, it waits for the save() method to complete before proceeding to the next line of code. This ensures that the message is saved to the database before sending the response back to the client.
     // what if we don't use await ? If we don't use await, the code will continue executing without waiting for the save() method to complete. This means that the response could be sent back to the client before the message is actually saved in the database, which could lead to inconsistencies and errors in the application.
-    //todo send messafe in real-time if user is online using - socket.io
+    const receiverSocketIds = getReceiverSocketIds(receiverId);
+    receiverSocketIds.forEach((socketId) => {
+      io.to(socketId).emit("newMessage", newMessage);
+    });
     //6. return the created message in the response with a 201 status code
     res.status(201).json(newMessage);
   } catch (error) {

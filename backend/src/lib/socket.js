@@ -17,6 +17,11 @@ const io = new Server(server, {
 // apply authentication middleware to all socket connections
 io.use(socketAuthMiddleware);
 
+// we will use this function to get all socket IDs for a user (supports multi-tab)
+export function getReceiverSocketIds(userId) {
+  return Array.from(userSocketMap[userId] || new Set());
+}
+
 // this is for storing online users
 const userSocketMap = {}; // {userId:socketId}
 io.on("connection", (socket) => {
