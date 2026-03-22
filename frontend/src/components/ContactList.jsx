@@ -31,7 +31,7 @@ function ContactList() {
             >
               <div className="size-12 rounded-full">
                 <img
-                  src={contact.profilePic || "/avatar.png"}
+                  src={contact.profilePicture || "/avatar.png"}
                   alt={`${contact.fullName}'s avatar`}
                 />{" "}
               </div>

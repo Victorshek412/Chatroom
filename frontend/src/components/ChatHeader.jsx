@@ -27,7 +27,7 @@ function ChatHeader() {
         <div className={`avatar ${isOnline ? "online" : "offline"}`}>
           <div className="w-12 rounded-full">
             <img
-              src={selectedUser.profilePic || "/avatar.png"}
+              src={selectedUser.profilePicture || "/avatar.png"}
               alt={selectedUser.fullName}
             />
           </div>
@@ -35,7 +35,7 @@ function ChatHeader() {
 
         <div>
           <h3 className="text-slate-200 font-medium">
-            {selectedUser.fullName}
+            <span data-testid="chat-header-name">{selectedUser.fullName}</span>
           </h3>
           <p className="text-slate-400 text-sm">
             {isOnline ? "Online" : "Offline"}

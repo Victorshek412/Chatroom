@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "e2e:mock-server": "node e2e/mockServer.js"
   },
   "keywords": [],
   "author": "",

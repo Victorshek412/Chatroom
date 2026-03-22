@@ -82,6 +82,7 @@ function MessageInput() {
           }}
           className="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-lg py-2 px-4"
           placeholder="Type your message..."
+          data-testid="message-input"
         />
 
         <input
@@ -107,6 +108,7 @@ function MessageInput() {
           disabled={!text.trim() && !imagePreview}
           className="bg-gradient-to-r from-cyan-500 to-cyan-600 text-white rounded-lg px-4 py-2 font-medium hover:from-cyan-600 hover:to-cyan-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label="Send message"
+          data-testid="send-message"
         >
           <SendIcon className="w-5 h-5" />
         </button>

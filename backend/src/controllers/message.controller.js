@@ -28,7 +28,7 @@ export const getMessageByUserId = async (req, res) => {
         { senderId: myId, receiverId: userToChatID },
         { senderId: userToChatID, receiverId: myId },
       ],
-    });
+    }).sort({ createdAt: 1, _id: 1 });
 
     res.status(200).json(messages);
   } catch (error) {
@@ -44,6 +44,7 @@ export const sendMessage = async (req, res) => {
     const { text, image } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
+    const senderSocketIdToSkip = req.headers["x-socket-id"];
 
     if (!text && !image) {
       return res.status(400).json({ message: "Text or image is required." });
@@ -79,11 +80,17 @@ export const sendMessage = async (req, res) => {
     receiverSocketIds.forEach((socketId) => {
       io.to(socketId).emit("newMessage", newMessage);
     });
+    const senderSocketIds = getReceiverSocketIds(senderId.toString()).filter(
+      (socketId) => socketId !== senderSocketIdToSkip,
+    );
+    senderSocketIds.forEach((socketId) => {
+      io.to(socketId).emit("newMessage", newMessage);
+    });
     //6. return the created message in the response with a 201 status code
     res.status(201).json(newMessage);
   } catch (error) {
     console.log("Error in sendMessage controller:", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
 export const getChatPartners = async (req, res) => {

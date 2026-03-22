@@ -4,6 +4,9 @@ import UsersLoadingSkeleton from "./UsersLoadingSkeleton";
 import NoChatsFound from "./NoChatsFound";
 import { useAuthStore } from "../store/useAuthStore";
 
+const getChatTestId = (chatId) =>
+  `chat-item-${String(chatId).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
 function ChatsList() {
   const { getMyChatPartners, chats, isUsersLoading, setSelectedUser } =
     useChatStore();
@@ -23,6 +26,7 @@ function ChatsList() {
           key={chat._id}
           className="bg-cyan-500/10 p-4 rounded-lg cursor-pointer hover:bg-cyan-500/20 transition-colors"
           onClick={() => setSelectedUser(chat)}
+          data-testid={getChatTestId(chat._id)}
         >
           <div className="flex items-center gap-3">
             <div
@@ -30,7 +34,7 @@ function ChatsList() {
             >
               <div className="size-12 rounded-full">
                 <img
-                  src={chat.profilePic || "/avatar.png"}
+                  src={chat.profilePicture || "/avatar.png"}
                   alt={chat.fullName}
                 />
               </div>

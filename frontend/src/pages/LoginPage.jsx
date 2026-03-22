@@ -53,6 +53,7 @@ function LoginPage() {
                         }
                         className="input"
                         placeholder="johndoe@gmail.com"
+                        data-testid="login-email"
                       />
                     </div>
                   </div>
@@ -71,6 +72,7 @@ function LoginPage() {
                         }
                         className="input"
                         placeholder="Enter your password"
+                        data-testid="login-password"
                       />
                     </div>
                   </div>
@@ -80,6 +82,7 @@ function LoginPage() {
                     className="auth-btn"
                     type="submit"
                     disabled={isLoggingIn}
+                    data-testid="login-submit"
                   >
                     {isLoggingIn ? (
                       <LoaderIcon className="w-full h-5 animate-spin text-center" />
