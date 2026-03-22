@@ -3,11 +3,21 @@ import cors from "cors";
 import express from "express";
 import http from "http";
 import { randomUUID } from "node:crypto";
+import multer from "multer";
 import { Server } from "socket.io";
+import {
+  buildCloudinaryAttachmentMetadata,
+  getAttachmentValidationError,
+  isAllowedAttachmentMimeType,
+  MAX_MESSAGE_ATTACHMENT_SIZE,
+  MESSAGE_ATTACHMENT_FILE_FIELD,
+  normalizeAttachmentMetadata,
+} from "../src/lib/messageAttachments.js";
 
 const PORT = Number(process.env.E2E_BACKEND_PORT || 3100);
 const FRONTEND_ORIGIN =
   process.env.E2E_FRONTEND_ORIGIN || "http://localhost:4173";
+const SERVER_ORIGIN = `http://localhost:${PORT}`;
 const SESSION_COOKIE = "mock_session";
 
 const app = express();
@@ -53,7 +63,15 @@ let messages = [];
 let sessions = new Map();
 let userSockets = new Map();
 let messageCounter = 0;
+let attachmentCounter = 0;
 let messageDelays = { ...defaultMessageDelays };
+let uploadedFiles = new Map();
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_MESSAGE_ATTACHMENT_SIZE,
+  },
+});
 
 const serializeUser = ({ password, ...user }) => ({ ...user });
 
@@ -80,6 +98,58 @@ const getUserById = (userId) => users.find((user) => user._id === userId);
 const getConversationKey = (firstUserId, secondUserId) =>
   `${firstUserId}:${secondUserId}`;
 
+const getTrimmedText = (value) =>
+  typeof value === "string" ? value.trim() : "";
+
+const getBase64MimeType = (value = "") => {
+  const match = value.match(/^data:(.+?);base64,/);
+  return match ? match[1] : "";
+};
+
+const normalizeAttachmentsPayload = (attachments) => {
+  if (attachments == null) {
+    return { attachments: [] };
+  }
+
+  if (!Array.isArray(attachments)) {
+    return { error: "Attachments must be an array." };
+  }
+
+  if (attachments.length > 1) {
+    return { error: "Only one attachment is allowed per message." };
+  }
+
+  const normalizedAttachments = attachments.map(normalizeAttachmentMetadata);
+  const validationError = normalizedAttachments
+    .map(getAttachmentValidationError)
+    .find(Boolean);
+
+  if (validationError) {
+    return { error: validationError };
+  }
+
+  return { attachments: normalizedAttachments };
+};
+
+const handleSingleAttachmentUpload = (req, res, next) => {
+  attachmentUpload.single(MESSAGE_ATTACHMENT_FILE_FIELD)(req, res, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      return res
+        .status(400)
+        .json({ message: "Attachment must be 5 MB or smaller." });
+    }
+
+    return res
+      .status(400)
+      .json({ message: error.message || "Attachment upload failed." });
+  });
+};
+
 const getPartnerIds = (userId) =>
   Array.from(
     new Set(
@@ -103,8 +173,17 @@ const emitOnlineUsers = () => {
   io.emit("getOnlineUsers", onlineUsers);
 };
 
-const createMessage = ({ senderId, receiverId, text = "", image = null }) => {
+const createMessage = ({
+  senderId,
+  receiverId,
+  text = "",
+  image = null,
+  attachments = [],
+}) => {
   messageCounter += 1;
+  const nextAttachments = Array.isArray(attachments)
+    ? attachments.slice(0, 1)
+    : [];
 
   return {
     _id: `message-${messageCounter}`,
@@ -112,10 +191,40 @@ const createMessage = ({ senderId, receiverId, text = "", image = null }) => {
     receiverId,
     text,
     image,
+    ...(nextAttachments.length > 0 ? { attachments: nextAttachments } : {}),
     createdAt: new Date(
       Date.UTC(2026, 2, 23, 9, 0, Math.min(messageCounter, 59)),
     ).toISOString(),
   };
+};
+
+const createUploadedAttachment = (file) => {
+  attachmentCounter += 1;
+
+  const storageKey = `attachment-${attachmentCounter}`;
+  uploadedFiles.set(storageKey, {
+    buffer: file.buffer,
+    mimeType: file.mimetype,
+    originalName: file.originalname,
+  });
+
+  const originalNameParts = file.originalname.split(".");
+  const extension =
+    originalNameParts.length > 1 ? originalNameParts.pop() : "bin";
+  const originalFilename =
+    originalNameParts.join(".") || `shared-attachment-${attachmentCounter}`;
+
+  return buildCloudinaryAttachmentMetadata(
+    {
+      secure_url: `${SERVER_ORIGIN}/test/uploads/${storageKey}/${encodeURIComponent(file.originalname)}`,
+      original_filename: originalFilename,
+      public_id: `chatroom/message-attachments/${storageKey}`,
+      bytes: file.size,
+      format: extension,
+      resource_type: file.mimetype.startsWith("image/") ? "image" : "raw",
+    },
+    file,
+  );
 };
 
 const persistAndBroadcastMessage = (
@@ -141,7 +250,9 @@ const resetState = () => {
   users = baseUsers.map((user) => ({ ...user }));
   sessions = new Map();
   messageCounter = 0;
+  attachmentCounter = 0;
   messageDelays = { ...defaultMessageDelays };
+  uploadedFiles = new Map();
   messages = [
     createMessage({
       senderId: "user-bob",
@@ -180,6 +291,17 @@ app.use(express.json({ limit: "5mb" }));
 
 app.get("/health", (_, res) => {
   res.status(200).json({ ok: true });
+});
+
+app.get("/test/uploads/:storageKey/:fileName", (req, res) => {
+  const uploadedFile = uploadedFiles.get(req.params.storageKey);
+
+  if (!uploadedFile) {
+    return res.status(404).json({ message: "Upload not found." });
+  }
+
+  res.setHeader("Content-Type", uploadedFile.mimeType);
+  res.send(uploadedFile.buffer);
 });
 
 app.post("/api/auth/login", (req, res) => {
@@ -263,24 +385,84 @@ app.get("/api/messages/:id", requireAuth, async (req, res) => {
   res.status(200).json(conversation);
 });
 
+app.post(
+  "/api/messages/attachments/upload",
+  requireAuth,
+  handleSingleAttachmentUpload,
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ message: "Attachment file is required." });
+    }
+
+    if (!isAllowedAttachmentMimeType(req.file.mimetype)) {
+      return res
+        .status(400)
+        .json({ message: "Only images and PDF files are allowed." });
+    }
+
+    const attachment = createUploadedAttachment(req.file);
+    return res.status(201).json({ attachment });
+  },
+);
+
 app.post("/api/messages/send/:id", requireAuth, (req, res) => {
   const receiverId = req.params.id;
-  const { text = "", image = null } = req.body;
+  const { text = "", image = null, attachments } = req.body;
+  const trimmedText = getTrimmedText(text);
+  const legacyImagePayload = typeof image === "string" ? image.trim() : "";
+  const {
+    attachments: normalizedAttachments,
+    error: attachmentsError,
+  } = normalizeAttachmentsPayload(attachments);
 
-  if (!text && !image) {
-    return res.status(400).json({ message: "Text or image is required." });
+  if (attachmentsError) {
+    return res.status(400).json({ message: attachmentsError });
+  }
+
+  if (legacyImagePayload && normalizedAttachments.length > 0) {
+    return res
+      .status(400)
+      .json({ message: "Only one attachment is allowed per message." });
+  }
+
+  if (!trimmedText && !legacyImagePayload && normalizedAttachments.length === 0) {
+    return res.status(400).json({
+      message: "Text, image, or attachment is required.",
+    });
   }
 
   if (!getUserById(receiverId)) {
     return res.status(404).json({ message: "Receiver not found." });
   }
 
+  let imageUrl = null;
+  let attachmentsToSave = normalizedAttachments;
+
+  if (legacyImagePayload) {
+    const legacyMimeType = getBase64MimeType(legacyImagePayload) || "image/png";
+    imageUrl = legacyImagePayload;
+    attachmentsToSave = [
+      normalizeAttachmentMetadata({
+        url: legacyImagePayload,
+        originalName: "shared-image.png",
+        mimeType: legacyMimeType,
+        size: legacyImagePayload.length,
+        kind: "image",
+        provider: "cloudinary",
+        storageKey: "legacy-image",
+      }),
+    ];
+  } else if (attachmentsToSave[0]?.kind === "image") {
+    imageUrl = attachmentsToSave[0].url;
+  }
+
   const nextMessage = persistAndBroadcastMessage(
     {
       senderId: req.user._id,
       receiverId,
-      text,
-      image,
+      text: trimmedText,
+      image: imageUrl,
+      attachments: attachmentsToSave,
     },
     { skipSocketId: req.get("x-socket-id") || null },
   );
@@ -303,7 +485,8 @@ app.post("/test/config", (req, res) => {
 });
 
 app.post("/test/push-message", (req, res) => {
-  const { senderId, receiverId, text = "", image = null } = req.body;
+  const { senderId, receiverId, text = "", image = null, attachments = [] } =
+    req.body;
 
   if (!getUserById(senderId) || !getUserById(receiverId)) {
     return res.status(400).json({ message: "Unknown sender or receiver." });
@@ -314,6 +497,7 @@ app.post("/test/push-message", (req, res) => {
     receiverId,
     text,
     image,
+    attachments,
   });
   res.status(201).json(nextMessage);
 });

@@ -128,14 +128,32 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  uploadMessageAttachment: async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await axiosInstance.post("/messages/attachments/upload", formData);
+      return res.data.attachment;
+    } catch (error) {
+      throw new Error(
+        getErrorMessage(error, "Failed to upload attachment"),
+      );
+    }
+  },
+
   sendMessage: async (messageData) => {
     const { selectedUser, messages } = get();
     const { authUser, socket } = useAuthStore.getState();
+    const attachments = Array.isArray(messageData.attachments)
+      ? messageData.attachments.slice(0, 1)
+      : [];
+    const primaryAttachment = attachments[0];
 
     // Guard against null authUser or selectedUser
     if (!authUser || !selectedUser) {
       toast.error("User information is missing");
-      return;
+      return null;
     }
 
     const tempId = `temp-${Date.now()}`;
@@ -145,7 +163,10 @@ export const useChatStore = create((set, get) => ({
       senderId: authUser._id,
       receiverId: selectedUser._id,
       text: messageData.text,
-      image: messageData.image,
+      image:
+        messageData.image ||
+        (primaryAttachment?.kind === "image" ? primaryAttachment.url : null),
+      attachments: attachments.length > 0 ? attachments : undefined,
       createdAt: new Date().toISOString(),
       isOptimistic: true, // flag to identify optimistic messages (optional)
     };
@@ -155,7 +176,11 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await axiosInstance.post(
         `/messages/send/${selectedUser._id}`,
-        messageData,
+        {
+          text: messageData.text,
+          ...(messageData.image ? { image: messageData.image } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
+        },
         {
           headers: socket?.id ? { "x-socket-id": socket.id } : {},
         },
@@ -168,12 +193,14 @@ export const useChatStore = create((set, get) => ({
           res.data,
         ),
       }));
+      return res.data;
     } catch (error) {
       // remove optimistic message on failure
       set((state) => ({
         messages: state.messages.filter((message) => message._id !== tempId),
       }));
       toast.error(getErrorMessage(error, "Failed to send message"));
+      return null;
     }
   },
 

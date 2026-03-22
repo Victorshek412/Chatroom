@@ -7,6 +7,23 @@ cloudinary.config({
   api_secret: ENV.CLOUDINARY_API_SECRET,
 });
 
+export const uploadBufferToCloudinary = (buffer, options = {}) =>
+  new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      options,
+      (error, result) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(result);
+      },
+    );
+
+    uploadStream.end(buffer);
+  });
+
 export default cloudinary;
 // This code initializes and configures the Cloudinary SDK for use in the application.
 // 1. It imports the Cloudinary SDK and the environment variables.
