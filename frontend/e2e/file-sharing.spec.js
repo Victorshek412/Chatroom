@@ -13,8 +13,9 @@ const pdfFixturePath = path.resolve(
   __dirname,
   "./fixtures/sample-attachment.pdf",
 );
-const invalidFixturePath = path.resolve(__dirname, "./fixtures/invalid.txt");
 const imageFixturePath = path.resolve(__dirname, "../public/login.png");
+const legacyImageDataUrl =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4//8/AwAI/AL+F2sonQAAAABJRU5ErkJggg==";
 
 const users = {
   alice: {
@@ -28,6 +29,24 @@ const users = {
     email: "bob@example.com",
   },
 };
+
+const createFilePayload = (name, mimeType, contents) => ({
+  name,
+  mimeType,
+  buffer: Buffer.isBuffer(contents) ? contents : Buffer.from(contents),
+});
+
+const createSizedFilePayload = (name, mimeType, sizeInBytes) => ({
+  name,
+  mimeType,
+  buffer: Buffer.alloc(sizeInBytes, "a"),
+});
+
+const createPdfPayload = async () => ({
+  name: "sample-attachment.pdf",
+  mimeType: "application/pdf",
+  buffer: await fs.readFile(pdfFixturePath),
+});
 
 async function resetServer(request) {
   const response = await request.post(`${mockServerUrl}/test/reset`);
@@ -47,26 +66,47 @@ async function openChat(page, user) {
   await expect(page.getByTestId("chat-header-name")).toHaveText(user.name);
 }
 
-async function createOversizedPdf(testInfo) {
-  const oversizedPdfPath = testInfo.outputPath("oversized-attachment.pdf");
-  const oversizedPayload = Buffer.alloc(5 * 1024 * 1024 + 128, "a");
+async function dropFiles(page, files) {
+  const dataTransfer = await page.evaluateHandle((nextFiles) => {
+    const transfer = new DataTransfer();
 
-  await fs.writeFile(
-    oversizedPdfPath,
-    Buffer.concat([Buffer.from("%PDF-1.1\n"), oversizedPayload]),
-  );
+    nextFiles.forEach((file) => {
+      const fileObject = new File(
+        [new Uint8Array(file.bytes)],
+        file.name,
+        { type: file.mimeType },
+      );
+      transfer.items.add(fileObject);
+    });
 
-  return oversizedPdfPath;
+    return transfer;
+  }, files.map((file) => ({
+    name: file.name,
+    mimeType: file.mimeType,
+    bytes: Array.from(file.buffer),
+  })));
+
+  await page.getByTestId("message-drop-zone").dispatchEvent("drop", {
+    dataTransfer,
+  });
 }
 
 test.beforeEach(async ({ request }) => {
   await resetServer(request);
 });
 
-test("uploads and sends a PDF attachment and the receiver sees it in chat", async ({
+test("sends multiple attachments and the receiver sees them in realtime", async ({
   page,
   browser,
 }) => {
+  const officeFile = createFilePayload(
+    "quarterly-plan.docx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "Quarterly plan",
+  );
+  const textFile = createFilePayload("release-notes.txt", "text/plain", "Notes");
+  const pdfFile = await createPdfPayload();
+
   await login(page, users.alice);
   await openChat(page, users.bob);
 
@@ -77,78 +117,189 @@ test("uploads and sends a PDF attachment and the receiver sees it in chat", asyn
     await login(bobPage, users.bob);
     await openChat(bobPage, users.alice);
 
-    await expect(page.getByTestId("image-attachment-button")).toBeVisible();
-    await expect(page.getByTestId("file-attachment-button")).toBeVisible();
+    await page.getByTestId("file-attachment-input").setInputFiles([
+      pdfFile,
+      officeFile,
+      textFile,
+    ]);
 
-    await page.getByTestId("file-attachment-input").setInputFiles(pdfFixturePath);
-    await expect(page.getByTestId("pending-attachment")).toContainText(
-      "sample-attachment.pdf",
+    await expect(page.getByTestId("pending-attachment-item")).toHaveCount(3);
+    await expect(page.getByTestId("pending-attachment-list")).toContainText(
+      "quarterly-plan.docx",
+    );
+    await expect(page.getByTestId("pending-attachment-list")).toContainText(
+      "release-notes.txt",
     );
 
     await page.getByTestId("send-message").click();
 
-    await expect(
-      page.getByTestId("message-list").getByText("sample-attachment.pdf"),
-    ).toBeVisible();
-    await expect(page.getByTestId("message-attachment-file").last()).toBeVisible();
-    await expect(page.getByTestId("open-attachment-link").last()).toBeVisible();
-    await expect(
-      page.getByTestId("download-attachment-link").last(),
-    ).toBeVisible();
+    await expect(page.getByTestId("message-attachment-file")).toHaveCount(3);
+    await expect(page.getByTestId("message-list")).toContainText("DOCX");
+    await expect(page.getByTestId("message-list")).toContainText("TXT");
 
-    await expect(
-      bobPage.getByTestId("message-list").getByText("sample-attachment.pdf"),
-    ).toBeVisible();
-    await expect(
-      bobPage.getByTestId("message-attachment-file").last(),
-    ).toBeVisible();
-    await expect(
-      bobPage.getByTestId("open-attachment-link").last(),
-    ).toBeVisible();
-    await expect(
-      bobPage.getByTestId("download-attachment-link").last(),
-    ).toBeVisible();
+    await expect(bobPage.getByTestId("message-attachment-file")).toHaveCount(3);
+    await expect(bobPage.getByTestId("message-list")).toContainText(
+      "quarterly-plan.docx",
+    );
+    await expect(bobPage.getByTestId("message-list")).toContainText(
+      "release-notes.txt",
+    );
   } finally {
     await bobContext.close();
   }
 });
 
-test("uploads and sends an image attachment through the new multipart flow", async ({
-  page,
-}) => {
+test("supports sending a mixed image and PDF message", async ({ page }) => {
   await login(page, users.alice);
   await openChat(page, users.bob);
 
   await page.getByTestId("image-attachment-input").setInputFiles(imageFixturePath);
-  await expect(page.getByTestId("pending-attachment")).toContainText("login.png");
+  await page.getByTestId("file-attachment-input").setInputFiles(pdfFixturePath);
+
+  await expect(page.getByTestId("pending-attachment-item")).toHaveCount(2);
 
   await page.getByTestId("send-message").click();
 
-  await expect(page.getByTestId("message-attachment-image").last()).toBeVisible();
+  await expect(page.getByTestId("message-attachment-image")).toHaveCount(1);
+  await expect(page.getByTestId("message-attachment-file")).toHaveCount(1);
 });
 
-test("rejects an invalid attachment type", async ({ page }) => {
-  await login(page, users.alice);
-  await openChat(page, users.bob);
-
-  await page.getByTestId("file-attachment-input").setInputFiles(invalidFixturePath);
-
-  await expect(
-    page.getByText("Only PDF files are allowed."),
-  ).toBeVisible();
-  await expect(page.getByTestId("pending-attachment")).toHaveCount(0);
-});
-
-test("rejects an oversized attachment", async ({ page }, testInfo) => {
-  const oversizedPdfPath = await createOversizedPdf(testInfo);
+test("rejects unsupported file types", async ({ page }) => {
+  const invalidFile = createFilePayload(
+    "archive.zip",
+    "application/zip",
+    "not allowed",
+  );
 
   await login(page, users.alice);
   await openChat(page, users.bob);
 
-  await page.getByTestId("file-attachment-input").setInputFiles(oversizedPdfPath);
+  await page.getByTestId("file-attachment-input").setInputFiles(invalidFile);
 
   await expect(
-    page.getByText("Attachment must be 5 MB or smaller."),
+    page.getByText(
+      "Only PDFs, Word, Excel, PowerPoint, and text files are allowed.",
+    ),
   ).toBeVisible();
-  await expect(page.getByTestId("pending-attachment")).toHaveCount(0);
+  await expect(page.getByTestId("pending-attachment-item")).toHaveCount(0);
+});
+
+test("rejects an oversized image attachment", async ({ page }) => {
+  const oversizedImage = createSizedFilePayload(
+    "oversized-image.png",
+    "image/png",
+    8 * 1024 * 1024 + 128,
+  );
+
+  await login(page, users.alice);
+  await openChat(page, users.bob);
+
+  await page.getByTestId("image-attachment-input").setInputFiles(oversizedImage);
+
+  await expect(
+    page.getByText("Image files must be 8 MB or smaller."),
+  ).toBeVisible();
+  await expect(page.getByTestId("pending-attachment-item")).toHaveCount(0);
+});
+
+test("rejects attachments that exceed the total message size limit", async ({
+  page,
+}) => {
+  const largeTextFiles = [
+    createSizedFilePayload("part-1.txt", "text/plain", 9 * 1024 * 1024),
+    createSizedFilePayload("part-2.txt", "text/plain", 9 * 1024 * 1024),
+    createSizedFilePayload("part-3.txt", "text/plain", 9 * 1024 * 1024),
+  ];
+
+  await login(page, users.alice);
+  await openChat(page, users.bob);
+
+  await page.getByTestId("file-attachment-input").setInputFiles(largeTextFiles);
+
+  await expect(
+    page.getByText("Attachments in one message must total 25 MB or less."),
+  ).toBeVisible();
+  await expect(page.getByTestId("pending-attachment-item")).toHaveCount(0);
+});
+
+test("rejects selecting more than five attachments", async ({ page }) => {
+  const files = Array.from({ length: 6 }, (_, index) =>
+    createFilePayload(
+      `note-${index + 1}.txt`,
+      "text/plain",
+      `File ${index + 1}`,
+    ),
+  );
+
+  await login(page, users.alice);
+  await openChat(page, users.bob);
+
+  await page.getByTestId("file-attachment-input").setInputFiles(files);
+
+  await expect(
+    page.getByText("You can attach up to 5 files per message."),
+  ).toBeVisible();
+  await expect(page.getByTestId("pending-attachment-item")).toHaveCount(0);
+});
+
+test("supports drag-and-drop uploads in the composer", async ({ page }) => {
+  const droppedFile = createFilePayload("dropped-note.txt", "text/plain", "drop");
+
+  await login(page, users.alice);
+  await openChat(page, users.bob);
+
+  await dropFiles(page, [droppedFile]);
+
+  await expect(page.getByTestId("pending-attachment-list")).toContainText(
+    "dropped-note.txt",
+  );
+
+  await page.getByTestId("send-message").click();
+
+  await expect(page.getByTestId("message-list")).toContainText("dropped-note.txt");
+});
+
+test("allows removing a pending attachment before sending", async ({ page }) => {
+  const removableFile = createFilePayload("remove-me.txt", "text/plain", "remove");
+  const pdfFile = await createPdfPayload();
+
+  await login(page, users.alice);
+  await openChat(page, users.bob);
+
+  await page.getByTestId("file-attachment-input").setInputFiles([
+    pdfFile,
+    removableFile,
+  ]);
+
+  await expect(page.getByTestId("pending-attachment-item")).toHaveCount(2);
+
+  await page
+    .getByTestId("pending-attachment-item")
+    .filter({ hasText: "remove-me.txt" })
+    .getByTestId("remove-pending-attachment")
+    .click();
+
+  await expect(page.getByTestId("pending-attachment-item")).toHaveCount(1);
+  await page.getByTestId("send-message").click();
+
+  await expect(page.getByTestId("message-list")).toContainText(
+    "sample-attachment.pdf",
+  );
+  await expect(page.getByTestId("message-list")).not.toContainText("remove-me.txt");
+});
+
+test("legacy image messages still render correctly", async ({ page, request }) => {
+  await login(page, users.alice);
+  await openChat(page, users.bob);
+
+  const response = await request.post(`${mockServerUrl}/test/push-message`, {
+    data: {
+      senderId: users.bob.id,
+      receiverId: users.alice.id,
+      image: legacyImageDataUrl,
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  await expect(page.getByTestId("legacy-image-message")).toBeVisible();
 });

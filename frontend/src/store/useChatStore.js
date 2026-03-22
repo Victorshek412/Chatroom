@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { useAuthStore } from "./useAuthStore";
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "../lib/messageAttachments";
 
 const getErrorMessage = (error, fallbackMessage) =>
   error.response?.data?.message || fallbackMessage;
@@ -128,13 +129,19 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  uploadMessageAttachment: async (file) => {
+  uploadMessageAttachment: async (
+    file,
+    { onUploadProgress, signal } = {},
+  ) => {
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("files", file);
 
     try {
-      const res = await axiosInstance.post("/messages/attachments/upload", formData);
-      return res.data.attachment;
+      const res = await axiosInstance.post("/messages/attachments/upload", formData, {
+        onUploadProgress,
+        signal,
+      });
+      return res.data.attachments?.[0] || res.data.attachment || null;
     } catch (error) {
       throw new Error(
         getErrorMessage(error, "Failed to upload attachment"),
@@ -142,13 +149,33 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  removeUploadedAttachment: async (attachment) => {
+    if (!attachment?.storageKey) {
+      return true;
+    }
+
+    try {
+      await axiosInstance.post("/messages/attachments/remove", {
+        storageKey: attachment.storageKey,
+        resourceType: attachment.resourceType,
+        mimeType: attachment.mimeType,
+      });
+      return true;
+    } catch (error) {
+      console.log("Attachment cleanup failed:", error);
+      return false;
+    }
+  },
+
   sendMessage: async (messageData) => {
     const { selectedUser, messages } = get();
     const { authUser, socket } = useAuthStore.getState();
     const attachments = Array.isArray(messageData.attachments)
-      ? messageData.attachments.slice(0, 1)
+      ? messageData.attachments.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)
       : [];
-    const primaryAttachment = attachments[0];
+    const firstImageAttachment = attachments.find(
+      (attachment) => attachment?.kind === "image",
+    );
 
     // Guard against null authUser or selectedUser
     if (!authUser || !selectedUser) {
@@ -165,7 +192,8 @@ export const useChatStore = create((set, get) => ({
       text: messageData.text,
       image:
         messageData.image ||
-        (primaryAttachment?.kind === "image" ? primaryAttachment.url : null),
+        firstImageAttachment?.url ||
+        null,
       attachments: attachments.length > 0 ? attachments : undefined,
       createdAt: new Date().toISOString(),
       isOptimistic: true, // flag to identify optimistic messages (optional)

@@ -24,6 +24,12 @@ export const uploadBufferToCloudinary = (buffer, options = {}) =>
     uploadStream.end(buffer);
   });
 
+export const destroyCloudinaryAsset = (publicId, options = {}) =>
+  cloudinary.uploader.destroy(publicId, {
+    invalidate: true,
+    ...options,
+  });
+
 export default cloudinary;
 // This code initializes and configures the Cloudinary SDK for use in the application.
 // 1. It imports the Cloudinary SDK and the environment variables.

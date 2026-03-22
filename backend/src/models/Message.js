@@ -1,4 +1,5 @@
 import mongoose from "mongoose"; // Import Mongoose for MongoDB interaction
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "../lib/messageAttachments.js";
 
 const attachmentSchema = new mongoose.Schema(
   {
@@ -36,6 +37,10 @@ const attachmentSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    resourceType: {
+      type: String,
+      enum: ["image", "raw"],
+    },
   },
   { _id: false },
 );
@@ -64,8 +69,9 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
       type: [attachmentSchema],
       default: undefined,
       validate: {
-        validator: (attachments) => !attachments || attachments.length <= 1,
-        message: "Only one attachment is allowed per message.",
+        validator: (attachments) =>
+          !attachments || attachments.length <= MAX_ATTACHMENTS_PER_MESSAGE,
+        message: "You can attach up to 5 files per message.",
       },
     },
   },

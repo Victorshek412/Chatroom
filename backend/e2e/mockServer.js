@@ -2,15 +2,22 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import http from "http";
-import { randomUUID } from "node:crypto";
 import multer from "multer";
+import { randomUUID } from "node:crypto";
 import { Server } from "socket.io";
 import {
   buildCloudinaryAttachmentMetadata,
   getAttachmentValidationError,
-  isAllowedAttachmentMimeType,
-  MAX_MESSAGE_ATTACHMENT_SIZE,
-  MESSAGE_ATTACHMENT_FILE_FIELD,
+  getAttachmentsCountValidationError,
+  getAttachmentsTotalSizeValidationError,
+  getCloudinaryResourceTypeForMimeType,
+  getRawAttachmentValidationError,
+  isCloudinaryAttachmentStorageKey,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_MESSAGE_ATTACHMENT_UPLOAD_SIZE,
+  MESSAGE_ATTACHMENT_FILES_FIELD,
+  MESSAGE_ATTACHMENT_FOLDER,
+  MESSAGE_ATTACHMENT_LEGACY_FILE_FIELD,
   normalizeAttachmentMetadata,
 } from "../src/lib/messageAttachments.js";
 
@@ -26,6 +33,14 @@ const io = new Server(server, {
   cors: {
     origin: FRONTEND_ORIGIN,
     credentials: true,
+  },
+});
+
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_MESSAGE_ATTACHMENT_UPLOAD_SIZE,
+    files: MAX_ATTACHMENTS_PER_MESSAGE,
   },
 });
 
@@ -66,12 +81,6 @@ let messageCounter = 0;
 let attachmentCounter = 0;
 let messageDelays = { ...defaultMessageDelays };
 let uploadedFiles = new Map();
-const attachmentUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: MAX_MESSAGE_ATTACHMENT_SIZE,
-  },
-});
 
 const serializeUser = ({ password, ...user }) => ({ ...user });
 
@@ -106,6 +115,22 @@ const getBase64MimeType = (value = "") => {
   return match ? match[1] : "";
 };
 
+const getUploadedFiles = (req) => {
+  if (Array.isArray(req.files)) {
+    return req.files;
+  }
+
+  if (req.files && typeof req.files === "object") {
+    return Object.values(req.files).flat();
+  }
+
+  if (req.file) {
+    return [req.file];
+  }
+
+  return [];
+};
+
 const normalizeAttachmentsPayload = (attachments) => {
   if (attachments == null) {
     return { attachments: [] };
@@ -115,33 +140,64 @@ const normalizeAttachmentsPayload = (attachments) => {
     return { error: "Attachments must be an array." };
   }
 
-  if (attachments.length > 1) {
-    return { error: "Only one attachment is allowed per message." };
+  const countValidationError = getAttachmentsCountValidationError(
+    attachments.length,
+  );
+
+  if (countValidationError) {
+    return { error: countValidationError };
   }
 
   const normalizedAttachments = attachments.map(normalizeAttachmentMetadata);
-  const validationError = normalizedAttachments
+  const attachmentValidationError = normalizedAttachments
     .map(getAttachmentValidationError)
     .find(Boolean);
 
-  if (validationError) {
-    return { error: validationError };
+  if (attachmentValidationError) {
+    return { error: attachmentValidationError };
+  }
+
+  const totalSizeValidationError =
+    getAttachmentsTotalSizeValidationError(normalizedAttachments);
+
+  if (totalSizeValidationError) {
+    return { error: totalSizeValidationError };
   }
 
   return { attachments: normalizedAttachments };
 };
 
-const handleSingleAttachmentUpload = (req, res, next) => {
-  attachmentUpload.single(MESSAGE_ATTACHMENT_FILE_FIELD)(req, res, (error) => {
+const handleAttachmentUpload = (req, res, next) => {
+  attachmentUpload.fields([
+    {
+      name: MESSAGE_ATTACHMENT_FILES_FIELD,
+      maxCount: MAX_ATTACHMENTS_PER_MESSAGE,
+    },
+    {
+      name: MESSAGE_ATTACHMENT_LEGACY_FILE_FIELD,
+      maxCount: 1,
+    },
+  ])(req, res, (error) => {
     if (!error) {
       next();
       return;
     }
 
-    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
-      return res
-        .status(400)
-        .json({ message: "Attachment must be 5 MB or smaller." });
+    if (error instanceof multer.MulterError) {
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return res
+          .status(400)
+          .json({ message: "Files must be 15 MB or smaller." });
+      }
+
+      if (
+        error.code === "LIMIT_FILE_COUNT" ||
+        error.code === "LIMIT_UNEXPECTED_FILE"
+      ) {
+        return res
+          .status(400)
+          .json({ message: "You can attach up to 5 files per message." });
+      }
     }
 
     return res
@@ -182,7 +238,7 @@ const createMessage = ({
 }) => {
   messageCounter += 1;
   const nextAttachments = Array.isArray(attachments)
-    ? attachments.slice(0, 1)
+    ? attachments.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)
     : [];
 
   return {
@@ -201,7 +257,8 @@ const createMessage = ({
 const createUploadedAttachment = (file) => {
   attachmentCounter += 1;
 
-  const storageKey = `attachment-${attachmentCounter}`;
+  const assetId = `attachment-${attachmentCounter}`;
+  const storageKey = `${MESSAGE_ATTACHMENT_FOLDER}/${assetId}`;
   uploadedFiles.set(storageKey, {
     buffer: file.buffer,
     mimeType: file.mimetype,
@@ -216,12 +273,12 @@ const createUploadedAttachment = (file) => {
 
   return buildCloudinaryAttachmentMetadata(
     {
-      secure_url: `${SERVER_ORIGIN}/test/uploads/${storageKey}/${encodeURIComponent(file.originalname)}`,
+      secure_url: `${SERVER_ORIGIN}/test/uploads/${encodeURIComponent(storageKey)}/${encodeURIComponent(file.originalname)}`,
       original_filename: originalFilename,
-      public_id: `chatroom/message-attachments/${storageKey}`,
+      public_id: storageKey,
       bytes: file.size,
       format: extension,
-      resource_type: file.mimetype.startsWith("image/") ? "image" : "raw",
+      resource_type: getCloudinaryResourceTypeForMimeType(file.mimetype),
     },
     file,
   );
@@ -388,22 +445,62 @@ app.get("/api/messages/:id", requireAuth, async (req, res) => {
 app.post(
   "/api/messages/attachments/upload",
   requireAuth,
-  handleSingleAttachmentUpload,
+  handleAttachmentUpload,
   (req, res) => {
-    if (!req.file) {
+    const uploaded = getUploadedFiles(req);
+
+    if (uploaded.length === 0) {
       return res.status(400).json({ message: "Attachment file is required." });
     }
 
-    if (!isAllowedAttachmentMimeType(req.file.mimetype)) {
-      return res
-        .status(400)
-        .json({ message: "Only images and PDF files are allowed." });
+    const countValidationError = getAttachmentsCountValidationError(
+      uploaded.length,
+    );
+
+    if (countValidationError) {
+      return res.status(400).json({ message: countValidationError });
     }
 
-    const attachment = createUploadedAttachment(req.file);
-    return res.status(201).json({ attachment });
+    const fileValidationError = uploaded
+      .map((file) =>
+        getRawAttachmentValidationError({
+          mimeType: file.mimetype,
+          size: file.size,
+        }),
+      )
+      .find(Boolean);
+
+    if (fileValidationError) {
+      return res.status(400).json({ message: fileValidationError });
+    }
+
+    const totalSizeValidationError = getAttachmentsTotalSizeValidationError(
+      uploaded,
+    );
+
+    if (totalSizeValidationError) {
+      return res.status(400).json({ message: totalSizeValidationError });
+    }
+
+    const attachments = uploaded.map(createUploadedAttachment);
+
+    return res.status(201).json({
+      attachments,
+      attachment: attachments[0] || null,
+    });
   },
 );
+
+app.post("/api/messages/attachments/remove", requireAuth, (req, res) => {
+  const { storageKey } = req.body ?? {};
+
+  if (!isCloudinaryAttachmentStorageKey(storageKey)) {
+    return res.status(400).json({ message: "Invalid attachment storage key." });
+  }
+
+  uploadedFiles.delete(storageKey);
+  return res.status(200).json({ result: "ok" });
+});
 
 app.post("/api/messages/send/:id", requireAuth, (req, res) => {
   const receiverId = req.params.id;
@@ -420,9 +517,9 @@ app.post("/api/messages/send/:id", requireAuth, (req, res) => {
   }
 
   if (legacyImagePayload && normalizedAttachments.length > 0) {
-    return res
-      .status(400)
-      .json({ message: "Only one attachment is allowed per message." });
+    return res.status(400).json({
+      message: "Use attachments or the legacy image field, not both.",
+    });
   }
 
   if (!trimmedText && !legacyImagePayload && normalizedAttachments.length === 0) {
@@ -435,12 +532,15 @@ app.post("/api/messages/send/:id", requireAuth, (req, res) => {
     return res.status(404).json({ message: "Receiver not found." });
   }
 
-  let imageUrl = null;
   let attachmentsToSave = normalizedAttachments;
+  let imageUrl =
+    attachmentsToSave.find((attachment) => attachment.kind === "image")?.url ||
+    null;
 
   if (legacyImagePayload) {
     const legacyMimeType = getBase64MimeType(legacyImagePayload) || "image/png";
-    imageUrl = legacyImagePayload;
+    const legacyStorageKey = `${MESSAGE_ATTACHMENT_FOLDER}/legacy-image-${messageCounter + 1}`;
+
     attachmentsToSave = [
       normalizeAttachmentMetadata({
         url: legacyImagePayload,
@@ -449,11 +549,18 @@ app.post("/api/messages/send/:id", requireAuth, (req, res) => {
         size: legacyImagePayload.length,
         kind: "image",
         provider: "cloudinary",
-        storageKey: "legacy-image",
+        storageKey: legacyStorageKey,
+        resourceType: getCloudinaryResourceTypeForMimeType(legacyMimeType),
       }),
     ];
-  } else if (attachmentsToSave[0]?.kind === "image") {
-    imageUrl = attachmentsToSave[0].url;
+    imageUrl = legacyImagePayload;
+  }
+
+  const totalSizeValidationError =
+    getAttachmentsTotalSizeValidationError(attachmentsToSave);
+
+  if (totalSizeValidationError) {
+    return res.status(400).json({ message: totalSizeValidationError });
   }
 
   const nextMessage = persistAndBroadcastMessage(

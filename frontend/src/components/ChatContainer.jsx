@@ -2,11 +2,11 @@ import { useEffect, useRef } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import ChatHeader from "./ChatHeader";
-import MessageAttachment from "./MessageAttachment";
+import MessageAttachments from "./MessageAttachments";
 import NoChatHistoryPlaceholder from "./NoChatHistoryPlaceholder";
 import MessageInput from "./MessageInput";
 import MessageLoadingSkeleton from "./MessageLoadingSkeleton";
-import { getPrimaryAttachment } from "../lib/messageAttachments";
+import { getMessageAttachments } from "../lib/messageAttachments";
 
 function ChatContainer() {
   const {
@@ -47,7 +47,8 @@ function ChatContainer() {
             {messages.map((msg) => {
               const isOwnMessage =
                 msg.senderId?.toString() === authUser._id?.toString();
-              const primaryAttachment = getPrimaryAttachment(msg);
+              const attachments = getMessageAttachments(msg);
+              const hasAttachments = attachments.length > 0;
 
               return (
                 <div
@@ -61,9 +62,9 @@ function ChatContainer() {
                         : "bg-slate-800 text-slate-200"
                     }`}
                   >
-                    {primaryAttachment ? (
-                      <MessageAttachment
-                        attachment={primaryAttachment}
+                    {hasAttachments ? (
+                      <MessageAttachments
+                        attachments={attachments}
                         isOwnMessage={isOwnMessage}
                       />
                     ) : (
@@ -78,7 +79,7 @@ function ChatContainer() {
                     )}
 
                     {msg.text && (
-                      <p className={primaryAttachment || msg.image ? "mt-2" : ""}>
+                      <p className={hasAttachments || msg.image ? "mt-2" : ""}>
                         {msg.text}
                       </p>
                     )}

@@ -1,10 +1,18 @@
-import cloudinary, { uploadBufferToCloudinary } from "../lib/cloudinary.js";
+import cloudinary, {
+  destroyCloudinaryAsset,
+  uploadBufferToCloudinary,
+} from "../lib/cloudinary.js";
 import {
   buildCloudinaryAttachmentMetadata,
   getAttachmentValidationError,
-  isAllowedAttachmentMimeType,
+  getAttachmentsCountValidationError,
+  getAttachmentsTotalSizeValidationError,
+  getCloudinaryResourceTypeForMimeType,
+  getRawAttachmentValidationError,
+  isCloudinaryAttachmentStorageKey,
   MESSAGE_ATTACHMENT_FOLDER,
   normalizeAttachmentMetadata,
+  normalizeCloudinaryResourceType,
 } from "../lib/messageAttachments.js";
 import { getReceiverSocketIds, io } from "../lib/socket.js";
 import Message from "../models/Message.js";
@@ -20,6 +28,25 @@ const getBase64MimeType = (value = "") => {
   return match ? match[1] : "";
 };
 
+const getUploadedFiles = (req) => {
+  if (Array.isArray(req.files)) {
+    return req.files;
+  }
+
+  if (req.files && typeof req.files === "object") {
+    return Object.values(req.files).flat();
+  }
+
+  if (req.file) {
+    return [req.file];
+  }
+
+  return [];
+};
+
+const getFirstImageAttachmentUrl = (attachments = []) =>
+  attachments.find((attachment) => attachment.kind === "image")?.url;
+
 const normalizeAttachmentsPayload = (attachments) => {
   if (attachments == null) {
     return { attachments: [] };
@@ -29,20 +56,48 @@ const normalizeAttachmentsPayload = (attachments) => {
     return { error: "Attachments must be an array." };
   }
 
-  if (attachments.length > 1) {
-    return { error: "Only one attachment is allowed per message." };
+  const countValidationError = getAttachmentsCountValidationError(
+    attachments.length,
+  );
+
+  if (countValidationError) {
+    return { error: countValidationError };
   }
 
   const normalizedAttachments = attachments.map(normalizeAttachmentMetadata);
-  const validationError = normalizedAttachments
+  const attachmentValidationError = normalizedAttachments
     .map(getAttachmentValidationError)
     .find(Boolean);
 
-  if (validationError) {
-    return { error: validationError };
+  if (attachmentValidationError) {
+    return { error: attachmentValidationError };
+  }
+
+  const totalSizeValidationError =
+    getAttachmentsTotalSizeValidationError(normalizedAttachments);
+
+  if (totalSizeValidationError) {
+    return { error: totalSizeValidationError };
   }
 
   return { attachments: normalizedAttachments };
+};
+
+const cleanupUploadedAttachments = async (attachments = []) => {
+  const attachmentsToCleanup = attachments.filter(
+    (attachment) => attachment?.storageKey,
+  );
+
+  await Promise.allSettled(
+    attachmentsToCleanup.map((attachment) =>
+      destroyCloudinaryAsset(attachment.storageKey, {
+        resource_type: normalizeCloudinaryResourceType(
+          attachment.resourceType,
+          attachment.mimeType,
+        ),
+      }),
+    ),
+  );
 };
 
 export const getAllContacts = async (req, res) => {
@@ -58,12 +113,11 @@ export const getAllContacts = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
 export const getMessageByUserId = async (req, res) => {
   try {
     const myId = req.user._id;
-    const { id: userToChatID } = req.params; // get the user id of the person I want to chat with
-    //{id:userToChatID} is destructuring the id parameter from the request parameters and renaming it to userToChatID for clarity in the code.
-    //req.params is an object containing properties mapped to the named route parameters. In this case, it extracts the id parameter from the URL and assigns it to userToChatID.
+    const { id: userToChatID } = req.params;
 
     const messages = await Message.find({
       $or: [
@@ -78,43 +132,102 @@ export const getMessageByUserId = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
-export const uploadMessageAttachment = async (req, res) => {
+
+export const uploadMessageAttachments = async (req, res) => {
+  const uploadedFiles = getUploadedFiles(req);
+
+  if (uploadedFiles.length === 0) {
+    return res.status(400).json({ message: "Attachment file is required." });
+  }
+
+  const countValidationError = getAttachmentsCountValidationError(
+    uploadedFiles.length,
+  );
+
+  if (countValidationError) {
+    return res.status(400).json({ message: countValidationError });
+  }
+
+  const fileValidationError = uploadedFiles
+    .map((file) =>
+      getRawAttachmentValidationError({
+        mimeType: file.mimetype,
+        size: file.size,
+      }),
+    )
+    .find(Boolean);
+
+  if (fileValidationError) {
+    return res.status(400).json({ message: fileValidationError });
+  }
+
+  const totalSizeValidationError = getAttachmentsTotalSizeValidationError(
+    uploadedFiles,
+  );
+
+  if (totalSizeValidationError) {
+    return res.status(400).json({ message: totalSizeValidationError });
+  }
+
+  const attachments = [];
+
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: "Attachment file is required." });
+    for (const file of uploadedFiles) {
+      const uploadResponse = await uploadBufferToCloudinary(file.buffer, {
+        folder: MESSAGE_ATTACHMENT_FOLDER,
+        resource_type: "auto",
+      });
+
+      attachments.push(buildCloudinaryAttachmentMetadata(uploadResponse, file));
     }
 
-    if (!isAllowedAttachmentMimeType(req.file.mimetype)) {
-      return res
-        .status(400)
-        .json({ message: "Only images and PDF files are allowed." });
-    }
-
-    const uploadResponse = await uploadBufferToCloudinary(req.file.buffer, {
-      folder: MESSAGE_ATTACHMENT_FOLDER,
-      resource_type: "auto",
+    return res.status(201).json({
+      attachments,
+      attachment: attachments[0] || null,
     });
-
-    const attachment = buildCloudinaryAttachmentMetadata(uploadResponse, req.file);
-
-    return res.status(201).json({ attachment });
   } catch (error) {
-    console.log("Error in uploadMessageAttachment controller:", error.message);
-    return res.status(500).json({ message: "Failed to upload attachment." });
+    await cleanupUploadedAttachments(attachments);
+    console.log("Error in uploadMessageAttachments controller:", error.message);
+    return res.status(500).json({ message: "Failed to upload attachments." });
   }
 };
+
+export const removePendingMessageAttachment = async (req, res) => {
+  try {
+    const { storageKey, resourceType, mimeType } = req.body ?? {};
+    const normalizedStorageKey =
+      typeof storageKey === "string" ? storageKey.trim() : "";
+
+    if (!isCloudinaryAttachmentStorageKey(normalizedStorageKey)) {
+      return res.status(400).json({ message: "Invalid attachment storage key." });
+    }
+
+    const destroyResult = await destroyCloudinaryAsset(normalizedStorageKey, {
+      resource_type: normalizeCloudinaryResourceType(resourceType, mimeType),
+    });
+
+    return res.status(200).json({
+      result: destroyResult?.result || "ok",
+    });
+  } catch (error) {
+    console.log(
+      "Error in removePendingMessageAttachment controller:",
+      error.message,
+    );
+    return res
+      .status(500)
+      .json({ message: "Failed to remove uploaded attachment." });
+  }
+};
+
 export const sendMessage = async (req, res) => {
   try {
-    //1. get the message text and image from the request body
-    //2. get the receiver id from the request parameters
-    //3. get the sender id from the logged in user (req.user)
     const { text, image, attachments } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
     const senderSocketIdToSkip = req.headers["x-socket-id"];
     const trimmedText = getTrimmedText(text);
-    const legacyImagePayload =
-      typeof image === "string" ? image.trim() : "";
+    const legacyImagePayload = typeof image === "string" ? image.trim() : "";
     const {
       attachments: normalizedAttachments,
       error: attachmentsError,
@@ -125,9 +238,9 @@ export const sendMessage = async (req, res) => {
     }
 
     if (legacyImagePayload && normalizedAttachments.length > 0) {
-      return res
-        .status(400)
-        .json({ message: "Only one attachment is allowed per message." });
+      return res.status(400).json({
+        message: "Use attachments or the legacy image field, not both.",
+      });
     }
 
     if (!trimmedText && !legacyImagePayload && normalizedAttachments.length === 0) {
@@ -135,24 +248,23 @@ export const sendMessage = async (req, res) => {
         message: "Text, image, or attachment is required.",
       });
     }
+
     if (senderId.equals(receiverId)) {
       return res
         .status(400)
         .json({ message: "Cannot send messages to yourself." });
     }
+
     const receiverExists = await User.exists({ _id: receiverId });
     if (!receiverExists) {
       return res.status(404).json({ message: "Receiver not found." });
     }
 
-    let imageUrl;
     let attachmentsToSave = normalizedAttachments;
-    //4. if there is an image, upload it to cloudinary and get the secure URL
-    if (legacyImagePayload) {
-      //upload base64 image to cloudinary and get the URL
-      const uploadResponse = await cloudinary.uploader.upload(legacyImagePayload);
-      imageUrl = uploadResponse.secure_url;
+    let imageUrl = getFirstImageAttachmentUrl(attachmentsToSave);
 
+    if (legacyImagePayload) {
+      const uploadResponse = await cloudinary.uploader.upload(legacyImagePayload);
       const legacyMimeType =
         getBase64MimeType(legacyImagePayload) ||
         `image/${uploadResponse.format || "jpeg"}`;
@@ -162,12 +274,19 @@ export const sendMessage = async (req, res) => {
           originalname: `${LEGACY_IMAGE_NAME}.${uploadResponse.format || "jpg"}`,
           mimetype: legacyMimeType,
           size: uploadResponse.bytes,
+          resourceType: getCloudinaryResourceTypeForMimeType(legacyMimeType),
         }),
       ];
-    } else if (attachmentsToSave[0]?.kind === "image") {
       imageUrl = attachmentsToSave[0].url;
     }
-    //5. create a new message document in the database with the sender id, receiver id, text, and image URL (if any)
+
+    const totalSizeValidationError =
+      getAttachmentsTotalSizeValidationError(attachmentsToSave);
+
+    if (totalSizeValidationError) {
+      return res.status(400).json({ message: totalSizeValidationError });
+    }
+
     const newMessage = new Message({
       senderId,
       receiverId,
@@ -175,26 +294,28 @@ export const sendMessage = async (req, res) => {
       image: imageUrl,
       attachments: attachmentsToSave.length > 0 ? attachmentsToSave : undefined,
     });
-    await newMessage.save(); // Save the new message document to the database
-    // what is await ? The await keyword is used to wait for a Promise to resolve. In this case, it waits for the save() method to complete before proceeding to the next line of code. This ensures that the message is saved to the database before sending the response back to the client.
-    // what if we don't use await ? If we don't use await, the code will continue executing without waiting for the save() method to complete. This means that the response could be sent back to the client before the message is actually saved in the database, which could lead to inconsistencies and errors in the application.
+
+    await newMessage.save();
+
     const receiverSocketIds = getReceiverSocketIds(receiverId);
     receiverSocketIds.forEach((socketId) => {
       io.to(socketId).emit("newMessage", newMessage);
     });
+
     const senderSocketIds = getReceiverSocketIds(senderId.toString()).filter(
       (socketId) => socketId !== senderSocketIdToSkip,
     );
     senderSocketIds.forEach((socketId) => {
       io.to(socketId).emit("newMessage", newMessage);
     });
-    //6. return the created message in the response with a 201 status code
+
     res.status(201).json(newMessage);
   } catch (error) {
     console.log("Error in sendMessage controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
 export const getChatPartners = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
