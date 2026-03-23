@@ -1,7 +1,49 @@
-import cloudinary from "../lib/cloudinary.js";
+import cloudinary, { uploadBufferToCloudinary } from "../lib/cloudinary.js";
+import {
+  buildCloudinaryAttachmentMetadata,
+  getAttachmentValidationError,
+  isAllowedAttachmentMimeType,
+  MESSAGE_ATTACHMENT_FOLDER,
+  normalizeAttachmentMetadata,
+} from "../lib/messageAttachments.js";
 import { getReceiverSocketIds, io } from "../lib/socket.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+
+const LEGACY_IMAGE_NAME = "shared-image";
+
+const getTrimmedText = (value) =>
+  typeof value === "string" ? value.trim() : "";
+
+const getBase64MimeType = (value = "") => {
+  const match = value.match(/^data:(.+?);base64,/);
+  return match ? match[1] : "";
+};
+
+const normalizeAttachmentsPayload = (attachments) => {
+  if (attachments == null) {
+    return { attachments: [] };
+  }
+
+  if (!Array.isArray(attachments)) {
+    return { error: "Attachments must be an array." };
+  }
+
+  if (attachments.length > 1) {
+    return { error: "Only one attachment is allowed per message." };
+  }
+
+  const normalizedAttachments = attachments.map(normalizeAttachmentMetadata);
+  const validationError = normalizedAttachments
+    .map(getAttachmentValidationError)
+    .find(Boolean);
+
+  if (validationError) {
+    return { error: validationError };
+  }
+
+  return { attachments: normalizedAttachments };
+};
 
 export const getAllContacts = async (req, res) => {
   try {
@@ -36,18 +78,62 @@ export const getMessageByUserId = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+export const uploadMessageAttachment = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Attachment file is required." });
+    }
+
+    if (!isAllowedAttachmentMimeType(req.file.mimetype)) {
+      return res
+        .status(400)
+        .json({ message: "Only images and PDF files are allowed." });
+    }
+
+    const uploadResponse = await uploadBufferToCloudinary(req.file.buffer, {
+      folder: MESSAGE_ATTACHMENT_FOLDER,
+      resource_type: "auto",
+    });
+
+    const attachment = buildCloudinaryAttachmentMetadata(uploadResponse, req.file);
+
+    return res.status(201).json({ attachment });
+  } catch (error) {
+    console.log("Error in uploadMessageAttachment controller:", error.message);
+    return res.status(500).json({ message: "Failed to upload attachment." });
+  }
+};
 export const sendMessage = async (req, res) => {
   try {
     //1. get the message text and image from the request body
     //2. get the receiver id from the request parameters
     //3. get the sender id from the logged in user (req.user)
-    const { text, image } = req.body;
+    const { text, image, attachments } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
     const senderSocketIdToSkip = req.headers["x-socket-id"];
+    const trimmedText = getTrimmedText(text);
+    const legacyImagePayload =
+      typeof image === "string" ? image.trim() : "";
+    const {
+      attachments: normalizedAttachments,
+      error: attachmentsError,
+    } = normalizeAttachmentsPayload(attachments);
 
-    if (!text && !image) {
-      return res.status(400).json({ message: "Text or image is required." });
+    if (attachmentsError) {
+      return res.status(400).json({ message: attachmentsError });
+    }
+
+    if (legacyImagePayload && normalizedAttachments.length > 0) {
+      return res
+        .status(400)
+        .json({ message: "Only one attachment is allowed per message." });
+    }
+
+    if (!trimmedText && !legacyImagePayload && normalizedAttachments.length === 0) {
+      return res.status(400).json({
+        message: "Text, image, or attachment is required.",
+      });
     }
     if (senderId.equals(receiverId)) {
       return res
@@ -60,18 +146,34 @@ export const sendMessage = async (req, res) => {
     }
 
     let imageUrl;
+    let attachmentsToSave = normalizedAttachments;
     //4. if there is an image, upload it to cloudinary and get the secure URL
-    if (image) {
+    if (legacyImagePayload) {
       //upload base64 image to cloudinary and get the URL
-      const uploadResponse = await cloudinary.uploader.upload(image);
+      const uploadResponse = await cloudinary.uploader.upload(legacyImagePayload);
       imageUrl = uploadResponse.secure_url;
+
+      const legacyMimeType =
+        getBase64MimeType(legacyImagePayload) ||
+        `image/${uploadResponse.format || "jpeg"}`;
+
+      attachmentsToSave = [
+        buildCloudinaryAttachmentMetadata(uploadResponse, {
+          originalname: `${LEGACY_IMAGE_NAME}.${uploadResponse.format || "jpg"}`,
+          mimetype: legacyMimeType,
+          size: uploadResponse.bytes,
+        }),
+      ];
+    } else if (attachmentsToSave[0]?.kind === "image") {
+      imageUrl = attachmentsToSave[0].url;
     }
     //5. create a new message document in the database with the sender id, receiver id, text, and image URL (if any)
     const newMessage = new Message({
       senderId,
       receiverId,
-      text,
+      text: trimmedText || undefined,
       image: imageUrl,
+      attachments: attachmentsToSave.length > 0 ? attachmentsToSave : undefined,
     });
     await newMessage.save(); // Save the new message document to the database
     // what is await ? The await keyword is used to wait for a Promise to resolve. In this case, it waits for the save() method to complete before proceeding to the next line of code. This ensures that the message is saved to the database before sending the response back to the client.

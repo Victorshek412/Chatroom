@@ -1,5 +1,45 @@
 import mongoose from "mongoose"; // Import Mongoose for MongoDB interaction
 
+const attachmentSchema = new mongoose.Schema(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    originalName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    mimeType: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    size: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+    kind: {
+      type: String,
+      enum: ["image", "file"],
+      required: true,
+    },
+    provider: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    storageKey: {
+      type: String,
+      trim: true,
+    },
+  },
+  { _id: false },
+);
+
 const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongoose defines the structure of the documents within a collection. It specifies the fields, their data types, and any validation rules or constraints that should be applied to the data. In this case, the messageSchema defines the structure for messages in a messaging application.
   {
     senderId: {
@@ -19,6 +59,14 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
     },
     image: {
       type: String, // Optional image URL associated with the message
+    },
+    attachments: {
+      type: [attachmentSchema],
+      default: undefined,
+      validate: {
+        validator: (attachments) => !attachments || attachments.length <= 1,
+        message: "Only one attachment is allowed per message.",
+      },
     },
   },
   { timestamps: true },
