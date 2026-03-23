@@ -1,7 +1,13 @@
 import { useState, useRef } from "react";
-import { LogOutIcon, VolumeOffIcon, Volume2Icon } from "lucide-react";
+import {
+  LogOutIcon,
+  UserRoundPlusIcon,
+  VolumeOffIcon,
+  Volume2Icon,
+} from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
+import FriendSystemModal from "./FriendSystemModal";
 
 const mouseClickSound = new Audio("/sound/mouse-click.mp3");
 
@@ -9,6 +15,7 @@ function ProfileHeader() {
   const { logout, authUser, updateProfile } = useAuthStore();
   const { isSoundEnabled, toggleSound } = useChatStore();
   const [selectedImg, setSelectedImg] = useState(null);
+  const [isFriendModalOpen, setIsFriendModalOpen] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -79,6 +86,15 @@ function ProfileHeader() {
           {/* LOGOUT BTN */}
           <button
             className="text-slate-400 hover:text-slate-200 transition-colors"
+            onClick={() => setIsFriendModalOpen(true)}
+            data-testid="friend-modal-trigger"
+            aria-label="Open friend system"
+          >
+            <UserRoundPlusIcon className="size-5" />
+          </button>
+
+          <button
+            className="text-slate-400 hover:text-slate-200 transition-colors"
             onClick={logout}
             data-testid="logout-button"
           >
@@ -106,6 +122,11 @@ function ProfileHeader() {
           </button>
         </div>
       </div>
+
+      <FriendSystemModal
+        isOpen={isFriendModalOpen}
+        onClose={() => setIsFriendModalOpen(false)}
+      />
     </div>
   );
 }

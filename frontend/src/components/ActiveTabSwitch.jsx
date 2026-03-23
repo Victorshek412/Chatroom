@@ -12,6 +12,7 @@ function ActiveTabSwitch() {
             ? "bg-cyan-500/20 text-cyan-400"
             : "text-slate-400"
         }`}
+        data-testid="tab-chats"
       >
         Chats
       </button>
@@ -23,8 +24,9 @@ function ActiveTabSwitch() {
             ? "bg-cyan-500/20 text-cyan-400"
             : "text-slate-400"
         }`}
+        data-testid="tab-friends"
       >
-        Contacts
+        Friends
       </button>
     </div>
   );

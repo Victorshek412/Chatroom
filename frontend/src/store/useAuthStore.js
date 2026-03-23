@@ -3,6 +3,7 @@ import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 import { useChatStore } from "./useChatStore";
+import { useFriendStore } from "./useFriendStore";
 
 const BASE_URL =
   import.meta.env.VITE_SOCKET_URL ||
@@ -26,6 +27,7 @@ export const useAuthStore = create((set, get) => ({
 
       if (get().authUser?._id !== nextAuthUser?._id) {
         useChatStore.getState().resetChatState();
+        useFriendStore.getState().resetFriendState();
         if (get().authUser) {
           get().disconnectSocket();
         }
@@ -36,6 +38,7 @@ export const useAuthStore = create((set, get) => ({
     } catch (error) {
       console.log("Error in authCheck:", error);
       useChatStore.getState().resetChatState();
+      useFriendStore.getState().resetFriendState();
       get().disconnectSocket();
       set({ authUser: null });
     } finally {
@@ -49,6 +52,7 @@ export const useAuthStore = create((set, get) => ({
       const res = await axiosInstance.post("/auth/signup", data);
       if (get().authUser?._id !== res.data?._id) {
         useChatStore.getState().resetChatState();
+        useFriendStore.getState().resetFriendState();
         if (get().authUser) {
           get().disconnectSocket();
         }
@@ -70,6 +74,7 @@ export const useAuthStore = create((set, get) => ({
       const res = await axiosInstance.post("/auth/login", data);
       if (get().authUser?._id !== res.data?._id) {
         useChatStore.getState().resetChatState();
+        useFriendStore.getState().resetFriendState();
         if (get().authUser) {
           get().disconnectSocket();
         }
@@ -90,6 +95,7 @@ export const useAuthStore = create((set, get) => ({
     try {
       await axiosInstance.post("/auth/logout");
       useChatStore.getState().resetChatState();
+      useFriendStore.getState().resetFriendState();
       set({ authUser: null });
       toast.success("Logged out successfully");
       get().disconnectSocket();

@@ -14,14 +14,14 @@ function NoChatsFound() {
           No conversations yet
         </h4>
         <p className="text-slate-400 text-sm px-6">
-          Start a new chat by selecting a contact from the contacts tab
+          Start a new chat by selecting a friend from the Friends tab
         </p>
       </div>
       <button
         onClick={() => setActiveTab("contacts")}
         className="px-4 py-2 text-sm text-cyan-400 bg-cyan-500/10 rounded-lg hover:bg-cyan-500/20 transition-colors"
       >
-        Find contacts
+        View friends
       </button>
     </div>
   );

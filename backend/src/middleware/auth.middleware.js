@@ -19,12 +19,19 @@ export const protectRoute = async (req, res, next) => {
     // Decoded contains the payload of the token, which includes user information such as userId.
     // This information is necessary to identify the user making the request and to fetch their details from the database.
 
-    const user = await User.findById(decoded.userId).select("-password"); // Find user by ID and exclude password field
+    const user = await User.findById(decoded.userId);
     if (!user) {
       return res.status(401).json({ message: "User not found" });
     }
 
-    req.user = user; // Attach user object to request
+    if (!user.friendId) {
+      await user.save();
+    }
+
+    const safeUser = user.toObject();
+    delete safeUser.password;
+
+    req.user = safeUser; // Attach user object to request
     next(); // Continue to the next middleware or route handler
   } catch (error) {
     console.error("Error in protectRoute middleware:", error.message);
