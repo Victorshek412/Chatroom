@@ -136,6 +136,36 @@ test("sends multiple attachments and the receiver sees them in realtime", async 
     await expect(page.getByTestId("message-attachment-file")).toHaveCount(3);
     await expect(page.getByTestId("message-list")).toContainText("DOCX");
     await expect(page.getByTestId("message-list")).toContainText("TXT");
+    await expect(
+      page
+        .getByTestId("message-attachment-file")
+        .filter({ hasText: "sample-attachment.pdf" })
+        .getByTestId("open-attachment-link"),
+    ).toHaveCount(1);
+    await expect(
+      page
+        .getByTestId("message-attachment-file")
+        .filter({ hasText: "sample-attachment.pdf" })
+        .getByTestId("download-attachment-link"),
+    ).toHaveCount(1);
+    await expect(
+      page
+        .getByTestId("message-attachment-file")
+        .filter({ hasText: "quarterly-plan.docx" })
+        .getByTestId("open-attachment-link"),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .getByTestId("message-attachment-file")
+        .filter({ hasText: "quarterly-plan.docx" })
+        .getByTestId("download-attachment-link"),
+    ).toHaveCount(1);
+    await expect(
+      page
+        .getByTestId("message-attachment-file")
+        .filter({ hasText: "release-notes.txt" })
+        .getByTestId("open-attachment-link"),
+    ).toHaveCount(0);
 
     await expect(bobPage.getByTestId("message-attachment-file")).toHaveCount(3);
     await expect(bobPage.getByTestId("message-list")).toContainText(
@@ -162,6 +192,8 @@ test("supports sending a mixed image and PDF message", async ({ page }) => {
 
   await expect(page.getByTestId("message-attachment-image")).toHaveCount(1);
   await expect(page.getByTestId("message-attachment-file")).toHaveCount(1);
+  await expect(page.getByTestId("open-attachment-link")).toHaveCount(1);
+  await expect(page.getByTestId("download-attachment-link")).toHaveCount(1);
 });
 
 test("rejects unsupported file types", async ({ page }) => {

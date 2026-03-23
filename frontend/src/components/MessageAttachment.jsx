@@ -10,8 +10,10 @@ import {
 } from "lucide-react";
 import {
   formatAttachmentSize,
+  getAttachmentDownloadUrl,
   getAttachmentDisplayType,
   getAttachmentIconKey,
+  isPdfAttachmentType,
 } from "../lib/messageAttachments";
 
 const attachmentIcons = {
@@ -50,6 +52,8 @@ function MessageAttachment({ attachment, isOwnMessage }) {
 
   const AttachmentIcon =
     attachmentIcons[getAttachmentIconKey(attachment)] || FileTypeIcon;
+  const isPdfAttachment = isPdfAttachmentType(attachment.mimeType);
+  const downloadUrl = getAttachmentDownloadUrl(attachment) || attachment.url;
 
   return (
     <div
@@ -72,20 +76,20 @@ function MessageAttachment({ attachment, isOwnMessage }) {
             {formatAttachmentSize(attachment.size)}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
+            {isPdfAttachment && (
+              <a
+                href={attachment.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-md bg-slate-950/30 px-2 py-1 text-xs font-medium"
+                data-testid="open-attachment-link"
+              >
+                <ExternalLinkIcon className="size-3.5" />
+                Open
+              </a>
+            )}
             <a
-              href={attachment.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md bg-slate-950/30 px-2 py-1 text-xs font-medium"
-              data-testid="open-attachment-link"
-            >
-              <ExternalLinkIcon className="size-3.5" />
-              Open
-            </a>
-            <a
-              href={attachment.url}
-              target="_blank"
-              rel="noreferrer"
+              href={downloadUrl}
               download={attachment.originalName}
               className="inline-flex items-center gap-1 rounded-md bg-slate-950/30 px-2 py-1 text-xs font-medium"
               data-testid="download-attachment-link"

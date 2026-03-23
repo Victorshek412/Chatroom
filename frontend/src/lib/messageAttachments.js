@@ -43,6 +43,8 @@ const DOCUMENT_MIME_TYPE_LABELS = new Map([
   ["text/plain", "TXT"],
 ]);
 
+const CLOUDINARY_UPLOAD_PATH_SEGMENT = "/upload/";
+
 const trimString = (value) => (typeof value === "string" ? value.trim() : "");
 
 export const isImageAttachmentType = (mimeType = "") =>
@@ -50,6 +52,9 @@ export const isImageAttachmentType = (mimeType = "") =>
 
 export const isDocumentAttachmentType = (mimeType = "") =>
   DOCUMENT_MIME_TYPE_LABELS.has(trimString(mimeType));
+
+export const isPdfAttachmentType = (mimeType = "") =>
+  trimString(mimeType) === "application/pdf";
 
 export const isAllowedMessageAttachmentType = (mimeType = "") =>
   isImageAttachmentType(mimeType) || isDocumentAttachmentType(mimeType);
@@ -166,6 +171,67 @@ export const getAttachmentIconKey = (attachment = {}) => {
   }
 
   return "file";
+};
+
+const getAttachmentDownloadNameBase = (originalName = "") => {
+  const normalizedFileName = trimString(originalName).split(/[\\/]/).pop() || "";
+
+  if (!normalizedFileName) {
+    return "shared-file";
+  }
+
+  const extensionIndex = normalizedFileName.lastIndexOf(".");
+  const baseName =
+    extensionIndex > 0
+      ? normalizedFileName.slice(0, extensionIndex)
+      : normalizedFileName;
+
+  return baseName || "shared-file";
+};
+
+const isCloudinaryUploadUrl = (urlValue = "") => {
+  try {
+    const parsedUrl = new URL(urlValue);
+    return (
+      parsedUrl.hostname.endsWith("cloudinary.com") &&
+      parsedUrl.pathname.includes(CLOUDINARY_UPLOAD_PATH_SEGMENT)
+    );
+  } catch {
+    return false;
+  }
+};
+
+export const getAttachmentDownloadUrl = (attachment = {}) => {
+  const attachmentUrl = trimString(attachment.url);
+
+  if (!attachmentUrl || !isDocumentAttachmentType(attachment.mimeType)) {
+    return attachmentUrl;
+  }
+
+  if (!isCloudinaryUploadUrl(attachmentUrl)) {
+    return attachmentUrl;
+  }
+
+  try {
+    const parsedUrl = new URL(attachmentUrl);
+
+    if (parsedUrl.pathname.includes("/fl_attachment:")) {
+      return parsedUrl.toString();
+    }
+
+    const downloadName = encodeURIComponent(
+      getAttachmentDownloadNameBase(attachment.originalName),
+    );
+
+    parsedUrl.pathname = parsedUrl.pathname.replace(
+      CLOUDINARY_UPLOAD_PATH_SEGMENT,
+      `${CLOUDINARY_UPLOAD_PATH_SEGMENT}fl_attachment:${downloadName}/`,
+    );
+
+    return parsedUrl.toString();
+  } catch {
+    return attachmentUrl;
+  }
 };
 
 export const getMessageAttachments = (message) =>

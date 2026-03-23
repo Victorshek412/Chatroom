@@ -176,6 +176,7 @@ export const uploadMessageAttachments = async (req, res) => {
       const uploadResponse = await uploadBufferToCloudinary(file.buffer, {
         folder: MESSAGE_ATTACHMENT_FOLDER,
         resource_type: "auto",
+        filename_override: file.originalname,
       });
 
       attachments.push(buildCloudinaryAttachmentMetadata(uploadResponse, file));
