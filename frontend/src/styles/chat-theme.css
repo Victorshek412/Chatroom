@@ -1,0 +1,139 @@
+:root {
+  --ct-page-bg: #edeef0;
+  --ct-sidebar: #ffffff;
+  --ct-surface: #ffffff;
+  --ct-chat-bg: #ffffff;
+  --ct-panel: #f7f8fb;
+  --ct-field-bg: #f5f5f6;
+  --ct-tab-active-bg: #ffffff;
+  --ct-bubble-bg: #f0f0f2;
+  --ct-bubble-own-bg: #f0f0f2;
+  --ct-avatar-bg: #eaeaec;
+  --ct-avatar-bg-act: #dddee3;
+  --ct-auth-bubble-bg: #ffffff;
+  --ct-auth-bubble-border: #e0e1e5;
+  --ct-border: #d6d6d8;
+  --ct-border-light: #ebebed;
+  --ct-field-border: #efefef;
+  --ct-field-focus: #c0c2cc;
+  --ct-tab-border: #ebebed;
+  --ct-text1: #1a1c27;
+  --ct-text2: #555b6e;
+  --ct-text3: #8c93a2;
+  --ct-text-muted: #a1a7b5;
+  --ct-bubble-text: #1a1c27;
+  --ct-avatar-text: #4a4f62;
+  --ct-avatar-text-act: #2e3040;
+  --ct-accent: #2e3040;
+  --ct-accent-fg: #f2f2f4;
+  --ct-send-bg: #1c1c1e;
+  --ct-send-fg: #ffffff;
+  --ct-badge-bg: #2e3040;
+  --ct-badge-fg: #f2f2f4;
+  --ct-count-badge-bg: #555b6e;
+  --ct-count-badge-text: #ffffff;
+  --ct-icon: #6b7080;
+  --ct-icon-cw: #3c3c43;
+  --ct-icon-hover: rgba(18, 18, 18, 0.05);
+  --ct-hover-bg: rgba(18, 18, 18, 0.03);
+  --ct-active-bg: rgba(18, 18, 18, 0.04);
+  --ct-active-border: rgba(18, 18, 18, 0.08);
+  --ct-tab-inactive: #8c93a2;
+  --ct-status-green: #16a34a;
+  --ct-status-amber: #ca8a04;
+  --ct-status-gray: #c4c8d0;
+  --ct-scrollbar: #e0e0e2;
+  --ct-destructive: #b83232;
+  --ct-destructive-bg: rgba(184, 50, 50, 0.07);
+  --ct-destructive-hover-bg: rgba(184, 50, 50, 0.07);
+  --ct-pin-bg: #f7f8fb;
+  --ct-pin-accent: #4a4f62;
+  --ct-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.1), 0 1px 6px rgba(0, 0, 0, 0.06);
+  --ct-field-shadow: 0 4px 12px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --ct-tab-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --ct-toggle-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+  --ct-shadow-lg: var(--ct-card-shadow);
+  --ct-shadow-md: 0 4px 18px rgba(0, 0, 0, 0.08);
+  --ct-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="dark"] {
+  --ct-page-bg: #0d0d0d;
+  --ct-panel: #131313;
+  --ct-sidebar: #171717;
+  --ct-surface: #212121;
+  --ct-chat-bg: #1e1e1e;
+  --ct-field-bg: #2f2f2f;
+  --ct-tab-active-bg: #2a2a2a;
+  --ct-bubble-bg: #2c2c2c;
+  --ct-bubble-own-bg: #2c2c2c;
+  --ct-avatar-bg: #323232;
+  --ct-avatar-bg-act: #3c3c3c;
+  --ct-auth-bubble-bg: #2a2a2a;
+  --ct-auth-bubble-border: rgba(255, 255, 255, 0.1);
+  --ct-border: rgba(255, 255, 255, 0.08);
+  --ct-border-light: rgba(255, 255, 255, 0.05);
+  --ct-field-border: rgba(255, 255, 255, 0.11);
+  --ct-field-focus: rgba(255, 255, 255, 0.26);
+  --ct-tab-border: rgba(255, 255, 255, 0.09);
+  --ct-text1: #ebebeb;
+  --ct-text2: #909090;
+  --ct-text3: #7a7a7a;
+  --ct-text-muted: #696969;
+  --ct-bubble-text: #e0e0e0;
+  --ct-avatar-text: #888888;
+  --ct-avatar-text-act: #d8d8d8;
+  --ct-accent: #d4d4d4;
+  --ct-accent-fg: #171717;
+  --ct-send-bg: #e2e2e2;
+  --ct-send-fg: #111111;
+  --ct-badge-bg: #d4d4d4;
+  --ct-badge-fg: #171717;
+  --ct-count-badge-bg: #6a6a6a;
+  --ct-count-badge-text: #ffffff;
+  --ct-icon: #6a6a6a;
+  --ct-icon-cw: #7a7a7a;
+  --ct-icon-hover: rgba(255, 255, 255, 0.07);
+  --ct-hover-bg: rgba(255, 255, 255, 0.04);
+  --ct-active-bg: rgba(255, 255, 255, 0.07);
+  --ct-active-border: rgba(255, 255, 255, 0.12);
+  --ct-tab-inactive: #585858;
+  --ct-status-green: #22c55e;
+  --ct-status-amber: #eab308;
+  --ct-status-gray: #404040;
+  --ct-scrollbar: #303030;
+  --ct-destructive: #d06060;
+  --ct-destructive-bg: rgba(208, 96, 96, 0.1);
+  --ct-destructive-hover-bg: rgba(208, 96, 96, 0.1);
+  --ct-pin-bg: #1b1b1b;
+  --ct-pin-accent: #909090;
+  --ct-card-shadow: 0 2px 20px rgba(0, 0, 0, 0.7), 0 1px 4px rgba(0, 0, 0, 0.4);
+  --ct-field-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 4px 14px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --ct-tab-shadow: 0 2px 10px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --ct-toggle-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+  --ct-shadow-lg: var(--ct-card-shadow);
+  --ct-shadow-md: 0 4px 18px rgba(0, 0, 0, 0.34);
+  --ct-shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.28);
+}
+
+.attach-strip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition-property: background-color, color, border-color, box-shadow, fill, stroke !important;
+  transition-duration: 200ms !important;
+  transition-timing-function: ease !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ct-text3);
+  opacity: 1;
+}

@@ -543,6 +543,35 @@ app.get("/api/friends/requests/outgoing", requireAuth, (req, res) => {
   res.status(200).json({ requests: outgoingRequests });
 });
 
+app.post("/api/friends/requests/:requestId/cancel", requireAuth, (req, res) => {
+  const friendRequest = friendRequests.find(
+    (candidate) => candidate._id === req.params.requestId,
+  );
+
+  if (!friendRequest) {
+    return res.status(404).json({ message: "Friend request not found." });
+  }
+
+  if (friendRequest.senderId !== req.user._id) {
+    return res
+      .status(403)
+      .json({ message: "You can only cancel outgoing requests." });
+  }
+
+  if (friendRequest.status !== "pending") {
+    return res
+      .status(400)
+      .json({ message: "This friend request is no longer pending." });
+  }
+
+  friendRequest.status = "rejected";
+  friendRequest.updatedAt = new Date().toISOString();
+
+  return res.status(200).json({
+    request: serializeFriendRequest(friendRequest, "receiverId"),
+  });
+});
+
 app.post("/api/friends/requests/:requestId/accept", requireAuth, (req, res) => {
   const friendRequest = friendRequests.find(
     (candidate) => candidate._id === req.params.requestId,

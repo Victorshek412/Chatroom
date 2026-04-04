@@ -1,7 +1,13 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
+import { buildChatActivity } from "../lib/chatActivity";
+import {
+  playSoundEffect,
+  primeSoundPlayback,
+} from "../lib/soundEffects";
 import { useAuthStore } from "./useAuthStore";
+import { useFriendStore } from "./useFriendStore";
 
 const getErrorMessage = (error, fallbackMessage) =>
   error.response?.data?.message || fallbackMessage;
@@ -28,10 +34,73 @@ const upsertMessage = (messages, nextMessage) => {
   return updatedMessages;
 };
 
+const upsertChatPartner = (chats, nextChatPartner) => {
+  if (!nextChatPartner?._id) {
+    return chats;
+  }
+
+  const nextChatPartnerId = getComparableId(nextChatPartner._id);
+  const existingIndex = chats.findIndex(
+    (chat) => getComparableId(chat._id) === nextChatPartnerId,
+  );
+
+  if (existingIndex === -1) {
+    return [nextChatPartner, ...chats];
+  }
+
+  const nextChats = [...chats];
+  const [existingChat] = nextChats.splice(existingIndex, 1);
+
+  return [
+    {
+      ...existingChat,
+      ...nextChatPartner,
+    },
+    ...nextChats,
+  ];
+};
+
+const upsertChatActivity = (chatActivityByUserId, userId, message) => {
+  const comparableUserId = getComparableId(userId);
+  if (!comparableUserId || !message) {
+    return chatActivityByUserId;
+  }
+
+  return {
+    ...chatActivityByUserId,
+    [comparableUserId]: buildChatActivity(message),
+  };
+};
+
+const isPageActive = () => {
+  if (typeof document === "undefined") {
+    return true;
+  }
+
+  return document.visibilityState === "visible";
+};
+
+const findKnownChatPartner = (state, partnerId) => {
+  const comparablePartnerId = getComparableId(partnerId);
+  if (!comparablePartnerId) {
+    return null;
+  }
+
+  return [
+    state.selectedUser,
+    ...state.chats,
+    ...state.allContacts,
+    ...useFriendStore.getState().friends,
+  ].find(
+    (candidate) => getComparableId(candidate?._id) === comparablePartnerId,
+  ) || null;
+};
+
 export const useChatStore = create((set, get) => ({
   allContacts: [],
   chats: [],
   messages: [],
+  chatActivityByUserId: {},
   activeTab: "chats",
   selectedUser: null,
   isUsersLoading: false,
@@ -40,8 +109,14 @@ export const useChatStore = create((set, get) => ({
   isSoundEnabled: JSON.parse(localStorage.getItem("isSoundEnabled")) === true,
 
   toggleSound: () => {
-    localStorage.setItem("isSoundEnabled", !get().isSoundEnabled);
-    set({ isSoundEnabled: !get().isSoundEnabled });
+    const nextIsSoundEnabled = !get().isSoundEnabled;
+
+    if (nextIsSoundEnabled) {
+      void primeSoundPlayback();
+    }
+
+    localStorage.setItem("isSoundEnabled", nextIsSoundEnabled);
+    set({ isSoundEnabled: nextIsSoundEnabled });
   },
 
   resetChatState: () =>
@@ -49,6 +124,7 @@ export const useChatStore = create((set, get) => ({
       allContacts: [],
       chats: [],
       messages: [],
+      chatActivityByUserId: {},
       selectedUser: null,
       isUsersLoading: false,
       isMessagesLoading: false,
@@ -115,6 +191,17 @@ export const useChatStore = create((set, get) => ({
       }
 
       set({ messages: res.data, isMessagesLoading: false });
+
+      const latestMessage = res.data[res.data.length - 1];
+      if (latestMessage) {
+        set((state) => ({
+          chatActivityByUserId: upsertChatActivity(
+            state.chatActivityByUserId,
+            userId,
+            latestMessage,
+          ),
+        }));
+      }
     } catch (error) {
       if (
         get().currentMessagesRequestId !== requestId ||
@@ -145,6 +232,7 @@ export const useChatStore = create((set, get) => ({
   sendMessage: async (messageData) => {
     const { selectedUser, messages } = get();
     const { authUser, socket } = useAuthStore.getState();
+    const selectedUserId = getComparableId(selectedUser?._id);
     const attachments = Array.isArray(messageData.attachments)
       ? messageData.attachments.slice(0, 1)
       : [];
@@ -188,8 +276,14 @@ export const useChatStore = create((set, get) => ({
 
       // Replace the optimistic message with the actual message from the server
       set((state) => ({
+        chats: upsertChatPartner(state.chats, selectedUser),
         messages: upsertMessage(
           state.messages.filter((message) => message._id !== tempId),
+          res.data,
+        ),
+        chatActivityByUserId: upsertChatActivity(
+          state.chatActivityByUserId,
+          selectedUserId,
           res.data,
         ),
       }));
@@ -214,31 +308,55 @@ export const useChatStore = create((set, get) => ({
       const { selectedUser, isSoundEnabled } = get();
       const { authUser } = useAuthStore.getState();
 
-      // Guard against null selectedUser
-      if (!selectedUser || !authUser) return;
+      if (!authUser) return;
 
-      const selectedUserId = getComparableId(selectedUser._id);
+      const selectedUserId = getComparableId(selectedUser?._id);
       const authUserId = getComparableId(authUser._id);
       const senderId = getComparableId(newMessage.senderId);
       const receiverId = getComparableId(newMessage.receiverId);
+      const chatPartnerId = senderId === authUserId ? receiverId : senderId;
 
       const isCurrentConversationMessage =
-        (senderId === selectedUserId && receiverId === authUserId) ||
-        (senderId === authUserId && receiverId === selectedUserId);
+        Boolean(selectedUserId) &&
+        (
+          (senderId === selectedUserId && receiverId === authUserId) ||
+          (senderId === authUserId && receiverId === selectedUserId)
+        );
 
-      if (!isCurrentConversationMessage) return;
+      let shouldRefreshChats = false;
 
       set((state) => ({
-        messages: upsertMessage(state.messages, newMessage),
+        chats: (() => {
+          const chatPartner = findKnownChatPartner(state, chatPartnerId);
+          if (!chatPartner) {
+            shouldRefreshChats = true;
+            return state.chats;
+          }
+
+          return upsertChatPartner(state.chats, chatPartner);
+        })(),
+        messages: isCurrentConversationMessage
+          ? upsertMessage(state.messages, newMessage)
+          : state.messages,
+        chatActivityByUserId: upsertChatActivity(
+          state.chatActivityByUserId,
+          chatPartnerId,
+          newMessage,
+        ),
       }));
 
-      if (isSoundEnabled && senderId === selectedUserId) {
-        const notificationSound = new Audio("/sound/notification.mp3");
+      if (shouldRefreshChats) {
+        void get().getMyChatPartners();
+      }
 
-        notificationSound.currentTime = 0; // reset to start
-        notificationSound
-          .play()
-          .catch((e) => console.log("Audio play failed:", e));
+      const isIncomingMessage = senderId !== authUserId;
+      const shouldPlayNotification =
+        isSoundEnabled &&
+        isIncomingMessage &&
+        !isPageActive();
+
+      if (shouldPlayNotification) {
+        void playSoundEffect("notification");
       }
     });
   },

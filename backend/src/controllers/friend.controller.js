@@ -46,6 +46,30 @@ const getPendingIncomingRequestById = async (requestId, receiverId) => {
   return { friendRequest };
 };
 
+const getPendingOutgoingRequestById = async (requestId, senderId) => {
+  const friendRequest = await FriendRequest.findById(requestId)
+    .populate("senderId", FRIEND_USER_SELECT)
+    .populate("receiverId", FRIEND_USER_SELECT);
+
+  if (!friendRequest) {
+    return { error: { status: 404, message: "Friend request not found." } };
+  }
+
+  if (friendRequest.senderId?._id?.toString() !== senderId.toString()) {
+    return {
+      error: { status: 403, message: "You can only cancel outgoing requests." },
+    };
+  }
+
+  if (friendRequest.status !== FRIEND_REQUEST_STATUS.PENDING) {
+    return {
+      error: { status: 400, message: "This friend request is no longer pending." },
+    };
+  }
+
+  return { friendRequest };
+};
+
 export const getMyFriendProfile = async (req, res) => {
   try {
     res.status(200).json(serializeFriendUser(req.user));
@@ -229,6 +253,29 @@ export const rejectFriendRequest = async (req, res) => {
     });
   } catch (error) {
     console.log("Error in rejectFriendRequest", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+export const cancelFriendRequest = async (req, res) => {
+  try {
+    const { friendRequest, error } = await getPendingOutgoingRequestById(
+      req.params.requestId,
+      req.user._id,
+    );
+
+    if (error) {
+      return res.status(error.status).json({ message: error.message });
+    }
+
+    friendRequest.status = FRIEND_REQUEST_STATUS.REJECTED;
+    await friendRequest.save();
+
+    res.status(200).json({
+      request: serializeFriendRequest(friendRequest, "receiverId"),
+    });
+  } catch (error) {
+    console.log("Error in cancelFriendRequest", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };

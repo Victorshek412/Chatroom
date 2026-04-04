@@ -1,6 +1,7 @@
 import express from "express";
 import {
   acceptFriendRequest,
+  cancelFriendRequest,
   findUserByFriendId,
   getMyFriendProfile,
   listAcceptedFriends,
@@ -22,6 +23,7 @@ router.get("/", listAcceptedFriends);
 router.post("/requests", sendFriendRequest);
 router.get("/requests/incoming", listIncomingFriendRequests);
 router.get("/requests/outgoing", listOutgoingFriendRequests);
+router.post("/requests/:requestId/cancel", cancelFriendRequest);
 router.post("/requests/:requestId/accept", acceptFriendRequest);
 router.post("/requests/:requestId/reject", rejectFriendRequest);
 

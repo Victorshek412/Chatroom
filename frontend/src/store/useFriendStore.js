@@ -36,6 +36,7 @@ export const useFriendStore = create((set, get) => ({
   isIncomingRequestsLoading: false,
   isOutgoingRequestsLoading: false,
   isSendingFriendRequest: false,
+  isCancellingFriendRequest: false,
   isUpdatingFriendRequest: false,
 
   resetFriendState: () =>
@@ -52,6 +53,7 @@ export const useFriendStore = create((set, get) => ({
       isIncomingRequestsLoading: false,
       isOutgoingRequestsLoading: false,
       isSendingFriendRequest: false,
+      isCancellingFriendRequest: false,
       isUpdatingFriendRequest: false,
     }),
 
@@ -151,6 +153,29 @@ export const useFriendStore = create((set, get) => ({
       return null;
     } finally {
       set({ isSendingFriendRequest: false });
+    }
+  },
+
+  cancelFriendRequest: async (requestId) => {
+    set({ isCancellingFriendRequest: true });
+
+    try {
+      const res = await axiosInstance.post(`/friends/requests/${requestId}/cancel`);
+      const cancelledRequestId = res.data.request?._id || requestId;
+
+      set((state) => ({
+        outgoingRequests: state.outgoingRequests.filter(
+          (request) => request._id !== cancelledRequestId,
+        ),
+      }));
+
+      toast.success("Friend request cancelled");
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to cancel request"));
+      return false;
+    } finally {
+      set({ isCancellingFriendRequest: false });
     }
   },
 
