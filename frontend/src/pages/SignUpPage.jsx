@@ -211,6 +211,8 @@ function SignUpPage() {
             <button
               type="submit"
               disabled={isSigningUp}
+              aria-label={isSigningUp ? "Creating account" : "Create account"}
+              aria-busy={isSigningUp}
               data-testid="signup-submit"
               className="mt-[8px] flex h-[48px] w-full items-center justify-center rounded-[14px] text-[15px] font-semibold"
               style={{
@@ -220,10 +222,11 @@ function SignUpPage() {
               }}
             >
               {isSigningUp ? (
-                <LoaderIcon className="animate-spin" size={18} />
+                <LoaderIcon className="animate-spin" size={18} aria-hidden="true" />
               ) : (
                 "Create account"
               )}
+            </button>
             </button>
           </form>
 
