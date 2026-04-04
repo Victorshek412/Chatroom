@@ -227,7 +227,6 @@ function SignUpPage() {
                 "Create account"
               )}
             </button>
-            </button>
           </form>
 
           <p
