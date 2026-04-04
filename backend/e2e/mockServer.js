@@ -36,6 +36,7 @@ const baseUsers = [
     email: "alice@example.com",
     password: "password123",
     profilePicture: null,
+    friendId: "ALC1-1001",
   },
   {
     _id: "user-bob",
@@ -43,6 +44,7 @@ const baseUsers = [
     email: "bob@example.com",
     password: "password123",
     profilePicture: null,
+    friendId: "BOB2-2002",
   },
   {
     _id: "user-cara",
@@ -50,6 +52,7 @@ const baseUsers = [
     email: "cara@example.com",
     password: "password123",
     profilePicture: null,
+    friendId: "CAR3-3003",
   },
 ];
 
@@ -60,9 +63,11 @@ const defaultMessageDelays = {
 
 let users = [];
 let messages = [];
+let friendRequests = [];
 let sessions = new Map();
 let userSockets = new Map();
 let messageCounter = 0;
+let friendRequestCounter = 0;
 let attachmentCounter = 0;
 let messageDelays = { ...defaultMessageDelays };
 let uploadedFiles = new Map();
@@ -74,6 +79,13 @@ const attachmentUpload = multer({
 });
 
 const serializeUser = ({ password, ...user }) => ({ ...user });
+
+const serializeFriendUser = (user) => ({
+  _id: user._id,
+  fullName: user.fullName,
+  profilePicture: user.profilePicture,
+  friendId: user.friendId,
+});
 
 const parseCookies = (cookieHeader = "") =>
   Object.fromEntries(
@@ -94,6 +106,11 @@ const parseCookies = (cookieHeader = "") =>
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getUserById = (userId) => users.find((user) => user._id === userId);
+
+const getUserByFriendId = (friendId) =>
+  users.find(
+    (user) => user.friendId === String(friendId || "").trim().toUpperCase(),
+  );
 
 const getConversationKey = (firstUserId, secondUserId) =>
   `${firstUserId}:${secondUserId}`;
@@ -164,6 +181,75 @@ const getPartnerIds = (userId) =>
       }),
     ),
   );
+
+const getAcceptedFriends = (userId) => {
+  const acceptedFriends = friendRequests
+    .filter(
+      (friendRequest) =>
+        friendRequest.status === "accepted" &&
+        (friendRequest.senderId === userId || friendRequest.receiverId === userId),
+    )
+    .map((friendRequest) =>
+      friendRequest.senderId === userId
+        ? getUserById(friendRequest.receiverId)
+        : getUserById(friendRequest.senderId),
+    )
+    .filter(Boolean);
+
+  return Array.from(
+    new Map(
+      acceptedFriends.map((friend) => [friend._id, serializeFriendUser(friend)]),
+    ).values(),
+  );
+};
+
+const getRelevantRelationship = (firstUserId, secondUserId) =>
+  [...friendRequests]
+    .reverse()
+    .find(
+      (friendRequest) =>
+        ["pending", "accepted"].includes(friendRequest.status) &&
+        ((friendRequest.senderId === firstUserId &&
+          friendRequest.receiverId === secondUserId) ||
+          (friendRequest.senderId === secondUserId &&
+            friendRequest.receiverId === firstUserId)),
+    );
+
+const createFriendRequest = ({
+  senderId,
+  receiverId,
+  status = "pending",
+}) => {
+  friendRequestCounter += 1;
+  const timestamp = new Date(
+    Date.UTC(2026, 2, 23, 10, Math.min(friendRequestCounter, 59), 0),
+  ).toISOString();
+
+  return {
+    _id: `friend-request-${friendRequestCounter}`,
+    senderId,
+    receiverId,
+    status,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+};
+
+const serializeFriendRequest = (friendRequest, counterpartField) => {
+  const counterpartId =
+    counterpartField === "senderId"
+      ? friendRequest.senderId
+      : friendRequest.receiverId;
+  const counterpartUser = getUserById(counterpartId);
+
+  return {
+    _id: friendRequest._id,
+    status: friendRequest.status,
+    createdAt: friendRequest.createdAt,
+    updatedAt: friendRequest.updatedAt,
+    user: counterpartUser ? serializeFriendUser(counterpartUser) : null,
+  };
+};
 
 const emitOnlineUsers = () => {
   const onlineUsers = Array.from(userSockets.entries())
@@ -248,8 +334,10 @@ const persistAndBroadcastMessage = (
 
 const resetState = () => {
   users = baseUsers.map((user) => ({ ...user }));
+  friendRequests = [];
   sessions = new Map();
   messageCounter = 0;
+  friendRequestCounter = 0;
   attachmentCounter = 0;
   messageDelays = { ...defaultMessageDelays };
   uploadedFiles = new Map();
@@ -352,11 +440,199 @@ app.put("/api/auth/update-profile", requireAuth, (req, res) => {
   res.status(200).json(serializeUser(req.user));
 });
 
+app.get("/api/friends/me", requireAuth, (req, res) => {
+  res.status(200).json(serializeFriendUser(req.user));
+});
+
+app.get("/api/friends/search", requireAuth, (req, res) => {
+  const friendId = String(req.query.friendId || "").trim().toUpperCase();
+
+  if (!friendId) {
+    return res.status(400).json({ message: "Enter a valid Friend ID." });
+  }
+
+  if (friendId === req.user.friendId) {
+    return res
+      .status(400)
+      .json({ message: "You cannot send a friend request to yourself." });
+  }
+
+  const foundUser = getUserByFriendId(friendId);
+
+  if (!foundUser) {
+    return res.status(404).json({ message: "No user found for that Friend ID." });
+  }
+
+  return res.status(200).json({ user: serializeFriendUser(foundUser) });
+});
+
+app.get("/api/friends", requireAuth, (req, res) => {
+  res.status(200).json({ friends: getAcceptedFriends(req.user._id) });
+});
+
+app.post("/api/friends/requests", requireAuth, (req, res) => {
+  const friendId = String(req.body?.friendId || "").trim().toUpperCase();
+
+  if (!friendId) {
+    return res.status(400).json({ message: "Enter a valid Friend ID." });
+  }
+
+  const receiver = getUserByFriendId(friendId);
+
+  if (!receiver) {
+    return res.status(404).json({ message: "No user found for that Friend ID." });
+  }
+
+  if (receiver._id === req.user._id) {
+    return res
+      .status(400)
+      .json({ message: "You cannot send a friend request to yourself." });
+  }
+
+  const existingRelationship = getRelevantRelationship(req.user._id, receiver._id);
+
+  if (existingRelationship?.status === "accepted") {
+    return res.status(400).json({ message: "You are already friends." });
+  }
+
+  if (existingRelationship?.status === "pending") {
+    const isOutgoingDuplicate = existingRelationship.senderId === req.user._id;
+    return res.status(409).json({
+      message: isOutgoingDuplicate
+        ? "You already sent a friend request to this user."
+        : "This user has already sent you a friend request.",
+    });
+  }
+
+  const friendRequest = createFriendRequest({
+    senderId: req.user._id,
+    receiverId: receiver._id,
+  });
+  friendRequests.push(friendRequest);
+
+  return res.status(201).json({
+    request: serializeFriendRequest(friendRequest, "receiverId"),
+  });
+});
+
+app.get("/api/friends/requests/incoming", requireAuth, (req, res) => {
+  const incomingRequests = friendRequests
+    .filter(
+      (friendRequest) =>
+        friendRequest.receiverId === req.user._id &&
+        friendRequest.status === "pending",
+    )
+    .slice()
+    .reverse()
+    .map((friendRequest) => serializeFriendRequest(friendRequest, "senderId"));
+
+  res.status(200).json({ requests: incomingRequests });
+});
+
+app.get("/api/friends/requests/outgoing", requireAuth, (req, res) => {
+  const outgoingRequests = friendRequests
+    .filter(
+      (friendRequest) =>
+        friendRequest.senderId === req.user._id &&
+        friendRequest.status === "pending",
+    )
+    .slice()
+    .reverse()
+    .map((friendRequest) => serializeFriendRequest(friendRequest, "receiverId"));
+
+  res.status(200).json({ requests: outgoingRequests });
+});
+
+app.post("/api/friends/requests/:requestId/cancel", requireAuth, (req, res) => {
+  const friendRequest = friendRequests.find(
+    (candidate) => candidate._id === req.params.requestId,
+  );
+
+  if (!friendRequest) {
+    return res.status(404).json({ message: "Friend request not found." });
+  }
+
+  if (friendRequest.senderId !== req.user._id) {
+    return res
+      .status(403)
+      .json({ message: "You can only cancel outgoing requests." });
+  }
+
+  if (friendRequest.status !== "pending") {
+    return res
+      .status(400)
+      .json({ message: "This friend request is no longer pending." });
+  }
+
+  friendRequest.status = "rejected";
+  friendRequest.updatedAt = new Date().toISOString();
+
+  return res.status(200).json({
+    request: serializeFriendRequest(friendRequest, "receiverId"),
+  });
+});
+
+app.post("/api/friends/requests/:requestId/accept", requireAuth, (req, res) => {
+  const friendRequest = friendRequests.find(
+    (candidate) => candidate._id === req.params.requestId,
+  );
+
+  if (!friendRequest) {
+    return res.status(404).json({ message: "Friend request not found." });
+  }
+
+  if (friendRequest.receiverId !== req.user._id) {
+    return res
+      .status(403)
+      .json({ message: "You can only respond to incoming requests." });
+  }
+
+  if (friendRequest.status !== "pending") {
+    return res
+      .status(400)
+      .json({ message: "This friend request is no longer pending." });
+  }
+
+  friendRequest.status = "accepted";
+  friendRequest.updatedAt = new Date().toISOString();
+
+  return res.status(200).json({
+    request: serializeFriendRequest(friendRequest, "senderId"),
+    friend: serializeFriendUser(getUserById(friendRequest.senderId)),
+  });
+});
+
+app.post("/api/friends/requests/:requestId/reject", requireAuth, (req, res) => {
+  const friendRequest = friendRequests.find(
+    (candidate) => candidate._id === req.params.requestId,
+  );
+
+  if (!friendRequest) {
+    return res.status(404).json({ message: "Friend request not found." });
+  }
+
+  if (friendRequest.receiverId !== req.user._id) {
+    return res
+      .status(403)
+      .json({ message: "You can only respond to incoming requests." });
+  }
+
+  if (friendRequest.status !== "pending") {
+    return res
+      .status(400)
+      .json({ message: "This friend request is no longer pending." });
+  }
+
+  friendRequest.status = "rejected";
+  friendRequest.updatedAt = new Date().toISOString();
+
+  return res.status(200).json({
+    request: serializeFriendRequest(friendRequest, "senderId"),
+  });
+});
+
 app.get("/api/messages/contacts", requireAuth, (req, res) => {
-  const contacts = users
-    .filter((user) => user._id !== req.user._id)
-    .map(serializeUser);
-  res.status(200).json(contacts);
+  res.status(200).json(getAcceptedFriends(req.user._id));
 });
 
 app.get("/api/messages/chats", requireAuth, (req, res) => {

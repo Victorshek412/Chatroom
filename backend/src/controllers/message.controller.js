@@ -7,6 +7,7 @@ import {
   normalizeAttachmentMetadata,
 } from "../lib/messageAttachments.js";
 import { getReceiverSocketIds, io } from "../lib/socket.js";
+import { listAcceptedFriendsForUser } from "../lib/friendships.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
 
@@ -47,12 +48,8 @@ const normalizeAttachmentsPayload = (attachments) => {
 
 export const getAllContacts = async (req, res) => {
   try {
-    const loggedInUserId = req.user._id;
-    const filteredUsers = await User.find({
-      _id: { $ne: loggedInUserId },
-    }).select("-password");
-
-    res.status(200).json(filteredUsers);
+    const acceptedFriends = await listAcceptedFriendsForUser(req.user._id);
+    res.status(200).json(acceptedFriends);
   } catch (error) {
     console.log("Error in getAllContacts", error);
     res.status(500).json({ message: "Internal Server Error" });

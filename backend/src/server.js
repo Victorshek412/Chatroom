@@ -4,6 +4,7 @@ import path from "path"; // Import path module for handling file paths
 import cors from "cors"; // Import CORS middleware to enable Cross-Origin Resource Sharing
 
 import authRoutes from "./routes/auth.route.js"; // Import authentication routes
+import friendRoutes from "./routes/friend.route.js";
 import messageRoutes from "./routes/message.route.js"; // Import message routes
 import { connectDB } from "./lib/db.js"; // Import database connection function
 import { ENV } from "./lib/env.js"; // Import environment variables
@@ -18,6 +19,7 @@ app.use(cors({ origin: ENV.CLIENT_URL, credentials: true })); // Enable CORS for
 app.use(cookieParser()); // Parse cookies from incoming requests
 
 app.use("/api/auth", authRoutes); // Mount authentication routes at /api/auth
+app.use("/api/friends", friendRoutes);
 app.use("/api/messages", messageRoutes); // Mount message routes at /api/messages
 
 // Error handler for oversized JSON bodies and invalid JSON

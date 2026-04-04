@@ -5,6 +5,14 @@ import { ENV } from "../lib/env.js";
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
 import cloudinary from "../lib/cloudinary.js";
 
+const buildAuthUserResponse = (user) => ({
+  _id: user._id,
+  fullName: user.fullName,
+  email: user.email,
+  profilePicture: user.profilePicture,
+  friendId: user.friendId,
+});
+
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
   // Here you would typically add logic to save the user to the database
@@ -49,12 +57,7 @@ export const signup = async (req, res) => {
       generateToken(savedUser._id, res); // A function that generate a token for
       //new user authentication and sends it in the response cookies
 
-      res.status(201).json({
-        _id: newUser._id,
-        fullName: newUser.fullName,
-        email: newUser.email,
-        profilePicture: newUser.profilePicture,
-      });
+      res.status(201).json(buildAuthUserResponse(savedUser));
       //res.status(201).json() is used to send a response back to the client indicating that a new resource has been successfully created.
 
       //welcome email
@@ -95,14 +98,13 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid email or password." });
     } // If password does not match, return error
 
+    if (!user.friendId) {
+      await user.save();
+    }
+
     generateToken(user._id, res); // Generate token for authenticated user
 
-    res.status(200).json({
-      _id: user._id,
-      fullName: user.fullName,
-      email: user.email,
-      profilePicture: user.profilePicture,
-    }); // Send user data in response
+    res.status(200).json(buildAuthUserResponse(user)); // Send user data in response
   } catch (error) {
     console.error("error in login controller:", error);
     res.status(500).json({ message: "Internal server error." }); // Handle server errors
