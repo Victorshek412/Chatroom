@@ -11,9 +11,11 @@ const getInitials = (name = "") =>
     .slice(0, 2)
     .toUpperCase() || "U";
 
-function CreateGroupSuccessModal({ group, onComplete }) {
+function CreateGroupSuccessModal({ group, currentUserId, onComplete }) {
   const dialogRef = useRef(null);
-  const members = Array.isArray(group?.members) ? group.members : [];
+  const members = Array.isArray(group?.members)
+    ? group.members.filter((member) => member._id !== currentUserId)
+    : [];
   const closeFromEffect = useEffectEvent(() => {
     if (group?.id) {
       onComplete(group.id);
@@ -33,7 +35,7 @@ function CreateGroupSuccessModal({ group, onComplete }) {
 
     const timer = window.setTimeout(() => {
       closeFromEffect();
-    }, 1700);
+    }, 2600);
 
     return () => window.clearTimeout(timer);
   }, [group]);

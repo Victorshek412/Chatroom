@@ -22,52 +22,65 @@ const findRelevantRelationship = (currentUserId, otherUserId) =>
     ],
   }).sort({ createdAt: -1, _id: -1 });
 
-const getPendingIncomingRequestById = async (requestId, receiverId) => {
-  const friendRequest = await FriendRequest.findById(requestId)
+const populateFriendRequest = (query) =>
+  query
     .populate("senderId", FRIEND_USER_SELECT)
     .populate("receiverId", FRIEND_USER_SELECT);
+
+const resolveFriendRequestTransitionError = async ({
+  requestId,
+  actorId,
+  actorField,
+  forbiddenMessage,
+}) => {
+  const friendRequest = await FriendRequest.findById(requestId);
 
   if (!friendRequest) {
     return { error: { status: 404, message: "Friend request not found." } };
   }
 
-  if (friendRequest.receiverId?._id?.toString() !== receiverId.toString()) {
+  if (friendRequest[actorField]?.toString() !== actorId.toString()) {
     return {
-      error: { status: 403, message: "You can only respond to incoming requests." },
+      error: { status: 403, message: forbiddenMessage },
     };
   }
 
-  if (friendRequest.status !== FRIEND_REQUEST_STATUS.PENDING) {
-    return {
-      error: { status: 400, message: "This friend request is no longer pending." },
-    };
-  }
-
-  return { friendRequest };
+  return {
+    error: { status: 409, message: "This friend request is no longer pending." },
+  };
 };
 
-const getPendingOutgoingRequestById = async (requestId, senderId) => {
-  const friendRequest = await FriendRequest.findById(requestId)
-    .populate("senderId", FRIEND_USER_SELECT)
-    .populate("receiverId", FRIEND_USER_SELECT);
+const updatePendingFriendRequestStatus = async ({
+  requestId,
+  actorId,
+  actorField,
+  nextStatus,
+  forbiddenMessage,
+}) => {
+  const friendRequest = await populateFriendRequest(
+    FriendRequest.findOneAndUpdate(
+      {
+        _id: requestId,
+        [actorField]: actorId,
+        status: FRIEND_REQUEST_STATUS.PENDING,
+      },
+      {
+        $set: { status: nextStatus },
+      },
+      { new: true },
+    ),
+  );
 
-  if (!friendRequest) {
-    return { error: { status: 404, message: "Friend request not found." } };
+  if (friendRequest) {
+    return { friendRequest };
   }
 
-  if (friendRequest.senderId?._id?.toString() !== senderId.toString()) {
-    return {
-      error: { status: 403, message: "You can only cancel outgoing requests." },
-    };
-  }
-
-  if (friendRequest.status !== FRIEND_REQUEST_STATUS.PENDING) {
-    return {
-      error: { status: 400, message: "This friend request is no longer pending." },
-    };
-  }
-
-  return { friendRequest };
+  return resolveFriendRequestTransitionError({
+    requestId,
+    actorId,
+    actorField,
+    forbiddenMessage,
+  });
 };
 
 export const getMyFriendProfile = async (req, res) => {
@@ -151,15 +164,44 @@ export const sendFriendRequest = async (req, res) => {
       });
     }
 
-    const friendRequest = await FriendRequest.create({
-      senderId: req.user._id,
-      receiverId: receiver._id,
-    });
+    let populatedRequest;
+    try {
+      const friendRequest = await FriendRequest.create({
+        senderId: req.user._id,
+        receiverId: receiver._id,
+      });
 
-    const populatedRequest = await FriendRequest.findById(friendRequest._id).populate(
-      "receiverId",
-      FRIEND_USER_SELECT,
-    );
+      populatedRequest = await FriendRequest.findById(friendRequest._id).populate(
+        "receiverId",
+        FRIEND_USER_SELECT,
+      );
+    } catch (error) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+
+      const latestRelationship = await findRelevantRelationship(
+        req.user._id,
+        receiver._id,
+      );
+
+      if (latestRelationship?.status === FRIEND_REQUEST_STATUS.ACCEPTED) {
+        return res.status(400).json({ message: "You are already friends." });
+      }
+
+      if (latestRelationship?.status === FRIEND_REQUEST_STATUS.PENDING) {
+        const isOutgoingDuplicate =
+          latestRelationship.senderId.toString() === req.user._id.toString();
+
+        return res.status(409).json({
+          message: isOutgoingDuplicate
+            ? "You already sent a friend request to this user."
+            : "This user has already sent you a friend request.",
+        });
+      }
+
+      throw error;
+    }
 
     res.status(201).json({
       request: serializeFriendRequest(populatedRequest, "receiverId"),
@@ -212,17 +254,17 @@ export const listOutgoingFriendRequests = async (req, res) => {
 
 export const acceptFriendRequest = async (req, res) => {
   try {
-    const { friendRequest, error } = await getPendingIncomingRequestById(
-      req.params.requestId,
-      req.user._id,
-    );
+    const { friendRequest, error } = await updatePendingFriendRequestStatus({
+      requestId: req.params.requestId,
+      actorId: req.user._id,
+      actorField: "receiverId",
+      nextStatus: FRIEND_REQUEST_STATUS.ACCEPTED,
+      forbiddenMessage: "You can only respond to incoming requests.",
+    });
 
     if (error) {
       return res.status(error.status).json({ message: error.message });
     }
-
-    friendRequest.status = FRIEND_REQUEST_STATUS.ACCEPTED;
-    await friendRequest.save();
 
     res.status(200).json({
       request: serializeFriendRequest(friendRequest, "senderId"),
@@ -236,17 +278,17 @@ export const acceptFriendRequest = async (req, res) => {
 
 export const rejectFriendRequest = async (req, res) => {
   try {
-    const { friendRequest, error } = await getPendingIncomingRequestById(
-      req.params.requestId,
-      req.user._id,
-    );
+    const { friendRequest, error } = await updatePendingFriendRequestStatus({
+      requestId: req.params.requestId,
+      actorId: req.user._id,
+      actorField: "receiverId",
+      nextStatus: FRIEND_REQUEST_STATUS.REJECTED,
+      forbiddenMessage: "You can only respond to incoming requests.",
+    });
 
     if (error) {
       return res.status(error.status).json({ message: error.message });
     }
-
-    friendRequest.status = FRIEND_REQUEST_STATUS.REJECTED;
-    await friendRequest.save();
 
     res.status(200).json({
       request: serializeFriendRequest(friendRequest, "senderId"),
@@ -259,17 +301,17 @@ export const rejectFriendRequest = async (req, res) => {
 
 export const cancelFriendRequest = async (req, res) => {
   try {
-    const { friendRequest, error } = await getPendingOutgoingRequestById(
-      req.params.requestId,
-      req.user._id,
-    );
+    const { friendRequest, error } = await updatePendingFriendRequestStatus({
+      requestId: req.params.requestId,
+      actorId: req.user._id,
+      actorField: "senderId",
+      nextStatus: FRIEND_REQUEST_STATUS.REJECTED,
+      forbiddenMessage: "You can only cancel outgoing requests.",
+    });
 
     if (error) {
       return res.status(error.status).json({ message: error.message });
     }
-
-    friendRequest.status = FRIEND_REQUEST_STATUS.REJECTED;
-    await friendRequest.save();
 
     res.status(200).json({
       request: serializeFriendRequest(friendRequest, "receiverId"),

@@ -72,6 +72,41 @@ const upsertChatActivity = (chatActivityByUserId, userId, message) => {
   };
 };
 
+const buildChatActivityByUserId = (chats) =>
+  (Array.isArray(chats) ? chats : []).reduce((chatActivityByUserId, chat) => {
+    const chatId = getComparableId(chat?._id);
+    if (!chatId || !chat?.latestMessage) {
+      return chatActivityByUserId;
+    }
+
+    chatActivityByUserId[chatId] = buildChatActivity(chat.latestMessage);
+    return chatActivityByUserId;
+  }, {});
+
+const clearUnreadCount = (unreadCountsByUserId, userId) => {
+  const comparableUserId = getComparableId(userId);
+  if (!comparableUserId || !unreadCountsByUserId[comparableUserId]) {
+    return unreadCountsByUserId;
+  }
+
+  return {
+    ...unreadCountsByUserId,
+    [comparableUserId]: 0,
+  };
+};
+
+const incrementUnreadCount = (unreadCountsByUserId, userId) => {
+  const comparableUserId = getComparableId(userId);
+  if (!comparableUserId) {
+    return unreadCountsByUserId;
+  }
+
+  return {
+    ...unreadCountsByUserId,
+    [comparableUserId]: (unreadCountsByUserId[comparableUserId] || 0) + 1,
+  };
+};
+
 const isPageActive = () => {
   if (typeof document === "undefined") {
     return true;
@@ -101,6 +136,7 @@ export const useChatStore = create((set, get) => ({
   chats: [],
   messages: [],
   chatActivityByUserId: {},
+  unreadCountsByUserId: {},
   activeTab: "chats",
   selectedUser: null,
   isUsersLoading: false,
@@ -125,6 +161,7 @@ export const useChatStore = create((set, get) => ({
       chats: [],
       messages: [],
       chatActivityByUserId: {},
+      unreadCountsByUserId: {},
       selectedUser: null,
       isUsersLoading: false,
       isMessagesLoading: false,
@@ -137,11 +174,19 @@ export const useChatStore = create((set, get) => ({
       const nextSelectedUserId = getComparableId(selectedUser?._id);
 
       if (currentSelectedUserId === nextSelectedUserId) {
-        return { selectedUser };
+        return {
+          selectedUser,
+          unreadCountsByUserId: nextSelectedUserId
+            ? clearUnreadCount(state.unreadCountsByUserId, nextSelectedUserId)
+            : state.unreadCountsByUserId,
+        };
       }
 
       return {
         selectedUser,
+        unreadCountsByUserId: nextSelectedUserId
+          ? clearUnreadCount(state.unreadCountsByUserId, nextSelectedUserId)
+          : state.unreadCountsByUserId,
         messages: [],
         isMessagesLoading: Boolean(selectedUser),
       };
@@ -162,7 +207,13 @@ export const useChatStore = create((set, get) => ({
     set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/chats");
-      set({ chats: res.data });
+      set((state) => ({
+        chats: res.data,
+        chatActivityByUserId: {
+          ...state.chatActivityByUserId,
+          ...buildChatActivityByUserId(res.data),
+        },
+      }));
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to load chats"));
     } finally {
@@ -193,15 +244,18 @@ export const useChatStore = create((set, get) => ({
       set({ messages: res.data, isMessagesLoading: false });
 
       const latestMessage = res.data[res.data.length - 1];
-      if (latestMessage) {
-        set((state) => ({
-          chatActivityByUserId: upsertChatActivity(
-            state.chatActivityByUserId,
-            userId,
-            latestMessage,
-          ),
-        }));
-      }
+      set((state) => ({
+        unreadCountsByUserId: clearUnreadCount(state.unreadCountsByUserId, userId),
+        ...(latestMessage
+          ? {
+              chatActivityByUserId: upsertChatActivity(
+                state.chatActivityByUserId,
+                userId,
+                latestMessage,
+              ),
+            }
+          : {}),
+      }));
     } catch (error) {
       if (
         get().currentMessagesRequestId !== requestId ||
@@ -277,10 +331,13 @@ export const useChatStore = create((set, get) => ({
       // Replace the optimistic message with the actual message from the server
       set((state) => ({
         chats: upsertChatPartner(state.chats, selectedUser),
-        messages: upsertMessage(
-          state.messages.filter((message) => message._id !== tempId),
-          res.data,
-        ),
+        messages:
+          getComparableId(state.selectedUser?._id) === selectedUserId
+            ? upsertMessage(
+              state.messages.filter((message) => message._id !== tempId),
+              res.data,
+            )
+            : state.messages,
         chatActivityByUserId: upsertChatActivity(
           state.chatActivityByUserId,
           selectedUserId,
@@ -315,6 +372,7 @@ export const useChatStore = create((set, get) => ({
       const senderId = getComparableId(newMessage.senderId);
       const receiverId = getComparableId(newMessage.receiverId);
       const chatPartnerId = senderId === authUserId ? receiverId : senderId;
+      const isIncomingMessage = senderId !== authUserId;
 
       const isCurrentConversationMessage =
         Boolean(selectedUserId) &&
@@ -343,13 +401,16 @@ export const useChatStore = create((set, get) => ({
           chatPartnerId,
           newMessage,
         ),
+        unreadCountsByUserId:
+          isIncomingMessage && !isCurrentConversationMessage
+            ? incrementUnreadCount(state.unreadCountsByUserId, chatPartnerId)
+            : clearUnreadCount(state.unreadCountsByUserId, chatPartnerId),
       }));
 
       if (shouldRefreshChats) {
         void get().getMyChatPartners();
       }
 
-      const isIncomingMessage = senderId !== authUserId;
       const shouldPlayNotification =
         isSoundEnabled &&
         isIncomingMessage &&

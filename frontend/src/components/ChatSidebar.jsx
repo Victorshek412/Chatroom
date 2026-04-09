@@ -91,7 +91,8 @@ function LoadingList({ isContacts }) {
 function ListItem({ item, isActive, isContacts, onSelect }) {
   const testIdPrefix = isContacts ? "friend-item" : "chat-item";
   const [isHovered, setIsHovered] = useState(false);
-  const previewText = isContacts ? item.secondaryText : "\u00A0";
+  const hasUnread = !isContacts && item.unreadCount > 0;
+  const previewText = isContacts ? item.secondaryText : item.previewText || "\u00A0";
   const avatarBorder = isActive ? "transparent" : "var(--ct-sidebar)";
   const avatarTextColor = isActive
     ? "var(--ct-avatar-text-act)"
@@ -160,7 +161,7 @@ function ListItem({ item, isActive, isContacts, onSelect }) {
             className="truncate text-[13px]"
             style={{
               color: isActive ? "var(--ct-accent)" : "var(--ct-text1)",
-              fontWeight: isActive ? 600 : 500,
+              fontWeight: isActive || hasUnread ? 600 : 500,
               letterSpacing: "-0.01em",
             }}
           >
@@ -169,7 +170,10 @@ function ListItem({ item, isActive, isContacts, onSelect }) {
           {item.timeLabel ? (
             <span
               className="shrink-0 text-[10px]"
-              style={{ color: "var(--ct-text3)" }}
+              style={{
+                color: hasUnread ? "var(--ct-text2)" : "var(--ct-text3)",
+                fontWeight: hasUnread ? 600 : 500,
+              }}
             >
               {item.timeLabel}
             </span>
@@ -182,9 +186,12 @@ function ListItem({ item, isActive, isContacts, onSelect }) {
             style={{
               color: isContacts
                 ? contactStatusColor
+                : hasUnread
+                  ? "var(--ct-text2)"
                 : isActive
                   ? "var(--ct-text2)"
                   : "var(--ct-text3)",
+              fontWeight: hasUnread ? 500 : 400,
             }}
           >
             {previewText}
@@ -196,8 +203,9 @@ function ListItem({ item, isActive, isContacts, onSelect }) {
                 background: "var(--ct-badge-bg)",
                 color: "var(--ct-badge-fg)",
               }}
+              data-testid={`${testIdPrefix}-${normalizeForTestId(item.testId)}-unread`}
             >
-              {item.unreadCount}
+              {item.unreadCount > 99 ? "99+" : item.unreadCount}
             </span>
           ) : null}
         </div>

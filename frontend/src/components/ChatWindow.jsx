@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import {
+  CameraIcon,
   FileTextIcon,
   FolderOpenIcon,
   ImageIcon,
   InboxIcon,
   LoaderCircleIcon,
+  LogOutIcon,
   MessageCircleIcon,
   MoreHorizontalIcon,
+  PencilIcon,
   SendIcon,
+  Trash2Icon,
   UserPlusIcon,
   UsersIcon,
   XIcon,
@@ -99,10 +103,18 @@ function StatusDot({ status, borderColor }) {
 }
 
 function HeaderMenu({
+  menuContext = "general",
+  canManageGroup = false,
   requestCount,
   onOpenAddContact,
   onOpenCreateGroup,
   onOpenRequests,
+  onOpenMembers,
+  onOpenAddMembers,
+  onOpenRenameGroup,
+  onOpenChangeGroupAvatar,
+  onOpenLeaveGroup,
+  onOpenDeleteGroup,
   onCloseConversation,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -124,40 +136,139 @@ function HeaderMenu({
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
+
   const runAction = (callback) => {
-    callback();
+    if (typeof callback === "function") {
+      callback();
+    }
+
     window.setTimeout(() => {
       setIsOpen(false);
     }, 0);
   };
 
-  const menuItems = [
-    {
-      label: "Add Contact",
-      icon: <UserPlusIcon size={13} strokeWidth={2} />,
-      onClick: onOpenAddContact,
-      testId: "open-add-contact",
-    },
-    {
-      label: "Create Group",
-      icon: <UsersIcon size={13} strokeWidth={2} />,
-      onClick: onOpenCreateGroup,
-      testId: "open-create-group",
-    },
-    {
-      label: "Requests",
-      icon: <InboxIcon size={13} strokeWidth={2} />,
-      onClick: onOpenRequests,
-      badge: requestCount,
-      testId: "open-requests",
-    },
-    {
-      label: "Close chat",
-      icon: <XIcon size={13} strokeWidth={2} />,
-      onClick: onCloseConversation,
-      testId: "close-chat-action",
-    },
-  ];
+  const menuItems = menuContext === "group"
+    ? [
+        {
+          label: "Members",
+          icon: <UsersIcon size={13} strokeWidth={2} />,
+          onClick: onOpenMembers,
+          testId: "open-group-members",
+        },
+        ...(canManageGroup
+          ? [
+              {
+                label: "Rename group",
+                icon: <PencilIcon size={13} strokeWidth={2} />,
+                onClick: onOpenRenameGroup,
+                testId: "open-rename-group",
+              },
+              {
+                label: "Change group avatar",
+                icon: <CameraIcon size={13} strokeWidth={2} />,
+                onClick: onOpenChangeGroupAvatar,
+                testId: "open-group-avatar",
+              },
+              {
+                label: "Add members",
+                icon: <UserPlusIcon size={13} strokeWidth={2} />,
+                onClick: onOpenAddMembers,
+                testId: "open-add-group-members",
+              },
+            ]
+          : []),
+        {
+          label: "Leave group",
+          icon: <LogOutIcon size={13} strokeWidth={2} />,
+          onClick: onOpenLeaveGroup,
+          testId: "leave-group-action",
+          dividerBefore: true,
+          tone: "destructive",
+        },
+        ...(canManageGroup
+          ? [
+              {
+                label: "Delete group",
+                icon: <Trash2Icon size={13} strokeWidth={2} />,
+                onClick: onOpenDeleteGroup,
+                testId: "delete-group-action",
+                tone: "destructive-strong",
+              },
+            ]
+          : []),
+        {
+          label: "Close chat",
+          icon: <XIcon size={13} strokeWidth={2} />,
+          onClick: onCloseConversation,
+          testId: "close-chat-action",
+          dividerBefore: true,
+        },
+      ]
+    : menuContext === "direct"
+      ? [
+        {
+          label: "Add Contact",
+          icon: <UserPlusIcon size={13} strokeWidth={2} />,
+          onClick: onOpenAddContact,
+          testId: "open-add-contact",
+        },
+        {
+          label: "Requests",
+          icon: <InboxIcon size={13} strokeWidth={2} />,
+          onClick: onOpenRequests,
+          badge: requestCount,
+          testId: "open-requests",
+        },
+        {
+          label: "Close chat",
+          icon: <XIcon size={13} strokeWidth={2} />,
+          onClick: onCloseConversation,
+          testId: "close-chat-action",
+          dividerBefore: true,
+        },
+      ]
+      : [
+          {
+            label: "Add Contact",
+            icon: <UserPlusIcon size={13} strokeWidth={2} />,
+            onClick: onOpenAddContact,
+            testId: "open-add-contact",
+          },
+          {
+            label: "Create Group",
+            icon: <UsersIcon size={13} strokeWidth={2} />,
+            onClick: onOpenCreateGroup,
+            testId: "open-create-group",
+          },
+          {
+            label: "Requests",
+            icon: <InboxIcon size={13} strokeWidth={2} />,
+            onClick: onOpenRequests,
+            badge: requestCount,
+            testId: "open-requests",
+          },
+          {
+            label: "Close chat",
+            icon: <XIcon size={13} strokeWidth={2} />,
+            onClick: onCloseConversation,
+            testId: "close-chat-action",
+            dividerBefore: true,
+          },
+        ];
 
   return (
     <div className="relative shrink-0" ref={menuRef}>
@@ -199,23 +310,44 @@ function HeaderMenu({
             border: "1px solid var(--ct-border)",
             boxShadow: "var(--ct-card-shadow)",
           }}
+          data-testid="chat-actions-menu"
         >
-          {menuItems.map((item, index) => (
+          {menuItems.map((item) => (
             <div key={item.label}>
+              {item.dividerBefore ? (
+                <div
+                  className="mx-2 my-[2px] h-px"
+                  style={{ background: "var(--ct-border-light)" }}
+                />
+              ) : null}
               <button
                 type="button"
                 className="flex h-[33px] w-full items-center gap-[9px] rounded-[8px] px-[11px] text-left"
                 style={{
-                  color: "var(--ct-text2)",
+                  color:
+                    item.tone === "destructive" || item.tone === "destructive-strong"
+                      ? "var(--ct-destructive)"
+                      : "var(--ct-text2)",
                   transition: "background 100ms ease, color 100ms ease",
                 }}
                 onMouseEnter={(event) => {
-                  event.currentTarget.style.background = "var(--ct-hover-bg)";
-                  event.currentTarget.style.color = "var(--ct-text1)";
+                  event.currentTarget.style.background =
+                    item.tone === "destructive-strong"
+                      ? "var(--ct-destructive-hover-bg)"
+                      : "var(--ct-hover-bg)";
+                  event.currentTarget.style.color =
+                    item.tone === "destructive"
+                      ? "var(--ct-destructive)"
+                      : item.tone === "destructive-strong"
+                        ? "var(--ct-destructive)"
+                        : "var(--ct-text1)";
                 }}
                 onMouseLeave={(event) => {
                   event.currentTarget.style.background = "transparent";
-                  event.currentTarget.style.color = "var(--ct-text2)";
+                  event.currentTarget.style.color =
+                    item.tone === "destructive" || item.tone === "destructive-strong"
+                      ? "var(--ct-destructive)"
+                      : "var(--ct-text2)";
                 }}
                 onClick={() => runAction(item.onClick)}
                 data-testid={item.testId}
@@ -247,12 +379,6 @@ function HeaderMenu({
                   </span>
                 ) : null}
               </button>
-              {index === 2 ? (
-                <div
-                  className="mx-2 my-[2px] h-px"
-                  style={{ background: "var(--ct-border-light)" }}
-                />
-              ) : null}
             </div>
           ))}
         </div>
@@ -550,26 +676,29 @@ function Composer({
 
             <button
               type="submit"
-              className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-xl"
+              className="shrink-0 rounded-lg p-1.5"
               style={{
-                background: canSend ? "var(--ct-send-bg)" : "transparent",
-                color: canSend ? "var(--ct-send-fg)" : "var(--ct-icon-cw)",
+                background: "transparent",
+                color: canSend ? "var(--ct-text1)" : "var(--ct-icon-cw)",
+                transition: "background 120ms ease, color 120ms ease",
               }}
               onMouseEnter={(event) => {
-                if (!canSend) {
-                  event.currentTarget.style.background = "var(--ct-icon-hover)";
+                if (canSend) {
+                  event.currentTarget.style.color = "var(--ct-accent)";
                 }
+                event.currentTarget.style.background = "var(--ct-icon-hover)";
               }}
               onMouseLeave={(event) => {
-                if (!canSend) {
-                  event.currentTarget.style.background = "transparent";
-                }
+                event.currentTarget.style.background = "transparent";
+                event.currentTarget.style.color = canSend
+                  ? "var(--ct-text1)"
+                  : "var(--ct-icon-cw)";
               }}
               disabled={!canSend || isUploadingAttachment}
               data-testid="send-message"
             >
               <SendIcon
-                size={18}
+                size={21}
                 strokeWidth={1.9}
                 style={{ marginLeft: "-1px", marginTop: "1px" }}
               />
@@ -639,6 +768,13 @@ function ChatWindow({
   onOpenAddContact,
   onOpenCreateGroup,
   onOpenRequests,
+  canManageGroup = false,
+  onOpenMembers,
+  onOpenAddMembers,
+  onOpenRenameGroup,
+  onOpenChangeGroupAvatar,
+  onOpenLeaveGroup,
+  onOpenDeleteGroup,
   requestCount,
 }) {
   const scrollerRef = useRef(null);
@@ -659,6 +795,7 @@ function ChatWindow({
 
   const headerStatus = conversation?.statusLabel || "";
   const headerStatusTone = conversation?.status || "offline";
+  const hasConversation = Boolean(conversation);
   const headerStatusColor =
     headerStatusTone === "online"
       ? "var(--ct-status-green)"
@@ -671,16 +808,16 @@ function ChatWindow({
       className="flex h-full flex-1 flex-col overflow-hidden"
       style={{ background: "var(--ct-surface)", position: "relative" }}
     >
-      {conversation ? (
-        <>
-          <header
-            className="flex shrink-0 items-center justify-between px-5 py-3.5"
-            style={{
-              background: "var(--ct-surface)",
-              borderBottom: "1px solid var(--ct-border-light)",
-            }}
-          >
-            <div className="flex min-w-0 items-center gap-3">
+      <header
+        className="flex shrink-0 items-center justify-between px-5 py-3.5"
+        style={{
+          background: "var(--ct-surface)",
+          borderBottom: "1px solid var(--ct-border-light)",
+        }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {hasConversation ? (
+            <>
               <div className="relative">
                 <Avatar
                   initials={conversation.avatarText}
@@ -706,19 +843,38 @@ function ChatWindow({
                   {headerStatus}
                 </p>
               </div>
-            </div>
+            </>
+          ) : (
+            <div className="h-[34px] flex-1" aria-hidden="true" />
+          )}
+        </div>
 
-            <HeaderMenu
-              requestCount={requestCount}
-              onOpenAddContact={onOpenAddContact}
-              onOpenCreateGroup={onOpenCreateGroup}
-              onOpenRequests={onOpenRequests}
-              onCloseConversation={onCloseConversation}
-            />
-          </header>
+        <HeaderMenu
+          menuContext={
+            conversation?.kind === "group"
+              ? "group"
+              : conversation
+                ? "direct"
+                : "empty"
+          }
+          canManageGroup={canManageGroup}
+          requestCount={requestCount}
+          onOpenAddContact={onOpenAddContact}
+          onOpenCreateGroup={onOpenCreateGroup}
+          onOpenRequests={onOpenRequests}
+          onOpenMembers={onOpenMembers}
+          onOpenAddMembers={onOpenAddMembers}
+          onOpenRenameGroup={onOpenRenameGroup}
+          onOpenChangeGroupAvatar={onOpenChangeGroupAvatar}
+          onOpenLeaveGroup={onOpenLeaveGroup}
+          onOpenDeleteGroup={onOpenDeleteGroup}
+          onCloseConversation={onCloseConversation}
+        />
+      </header>
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            {conversation.isLoading ? (
+      {conversation ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {conversation.isLoading ? (
               <div className="flex h-full items-center justify-center">
                 <LoaderCircleIcon
                   className="animate-spin"
@@ -786,7 +942,7 @@ function ChatWindow({
                         ) : null}
 
                         <div
-                          className={`flex max-w-[58%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
+                          className={`flex min-w-0 max-w-[58%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
                         >
                           {isFirstInGroup && !isOwnMessage ? (
                             <span
@@ -811,14 +967,22 @@ function ChatWindow({
 
                           {message.text ? (
                             <div
-                              className="min-w-[48px] rounded-[18px] px-[14px] py-[9px]"
+                              className="min-w-[48px] max-w-full rounded-[18px] px-[14px] py-[9px]"
                               style={{
                                 width: "fit-content",
+                                maxWidth: "100%",
                                 background: "var(--ct-bubble-bg)",
                                 color: "var(--ct-bubble-text)",
                               }}
                             >
-                              <p className="text-[14px]" style={{ lineHeight: 1.45 }}>
+                              <p
+                                className="text-[14px]"
+                                style={{
+                                  lineHeight: 1.45,
+                                  overflowWrap: "anywhere",
+                                  wordBreak: "break-word",
+                                }}
+                              >
                                 {message.text}
                               </p>
                             </div>
@@ -845,14 +1009,13 @@ function ChatWindow({
               </div>
             )}
 
-            <Composer
-              conversation={conversation}
-              onSendMessage={onSendMessage}
-              onUploadAttachment={onUploadAttachment}
-              isSoundEnabled={conversation.isSoundEnabled}
-            />
-          </div>
-        </>
+          <Composer
+            conversation={conversation}
+            onSendMessage={onSendMessage}
+            onUploadAttachment={onUploadAttachment}
+            isSoundEnabled={conversation.isSoundEnabled}
+          />
+        </div>
       ) : (
         <EmptyState conversation={null} />
       )}

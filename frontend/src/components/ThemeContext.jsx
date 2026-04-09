@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import "../styles/chat-theme.css";
 
-const STORAGE_KEY = "chatroom-theme";
+const STORAGE_KEY = "whisper-theme";
+const LEGACY_STORAGE_KEY = "chatroom-theme";
 
 const ThemeContext = createContext({
   isDark: false,
@@ -13,7 +14,9 @@ const getStoredTheme = () => {
     return "light";
   }
 
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored =
+    window.localStorage.getItem(STORAGE_KEY) ??
+    window.localStorage.getItem(LEGACY_STORAGE_KEY);
   return stored === "dark" ? "dark" : "light";
 };
 
@@ -29,6 +32,7 @@ export function ThemeProvider({ children }) {
   useEffect(() => {
     applyTheme(theme);
     window.localStorage.setItem(STORAGE_KEY, theme);
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   }, [theme]);
 
   useEffect(() => {
@@ -50,6 +54,7 @@ export function ThemeProvider({ children }) {
       const nextTheme = current === "dark" ? "light" : "dark";
       applyTheme(nextTheme);
       window.localStorage.setItem(STORAGE_KEY, nextTheme);
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
       return nextTheme;
     });
 

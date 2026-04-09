@@ -11,7 +11,7 @@ async function capturePage(page, route, prefix) {
   await page.setViewportSize({ width: 1440, height: 1024 });
 
   await page.evaluate(() => {
-    window.localStorage.setItem("chatroom-theme", "light");
+    window.localStorage.setItem("whisper-theme", "light");
     document.documentElement.setAttribute("data-theme", "light");
     document.documentElement.style.colorScheme = "light";
   });

@@ -101,7 +101,7 @@ function SignUpPage() {
               Create your account
             </h1>
             <p className="mt-2 text-[14px]" style={{ color: "var(--ct-text2)" }}>
-              Join Chatroom and start messaging
+              Join Whisper and start messaging
             </p>
           </div>
 

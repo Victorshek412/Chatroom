@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { ENV } from "../lib/env.js";
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
 import cloudinary from "../lib/cloudinary.js";
+import { generateUniqueFriendId } from "../lib/friendIds.js";
 
 const buildAuthUserResponse = (user) => ({
   _id: user._id,
@@ -12,6 +13,57 @@ const buildAuthUserResponse = (user) => ({
   profilePicture: user.profilePicture,
   friendId: user.friendId,
 });
+
+const FRIEND_ID_MISSING_FILTER = {
+  $or: [
+    { friendId: { $exists: false } },
+    { friendId: null },
+    { friendId: "" },
+  ],
+};
+
+const ensureUserHasFriendId = async (user) => {
+  if (!user?._id || user.friendId) {
+    return user;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const candidate = await generateUniqueFriendId((friendId) =>
+      User.exists({
+        friendId,
+        _id: { $ne: user._id },
+      }),
+    );
+
+    try {
+      const updatedUser = await User.findOneAndUpdate(
+        {
+          _id: user._id,
+          ...FRIEND_ID_MISSING_FILTER,
+        },
+        {
+          $set: { friendId: candidate },
+        },
+        { new: true },
+      );
+
+      if (updatedUser) {
+        return updatedUser;
+      }
+
+      const refreshedUser = await User.findById(user._id);
+      if (refreshedUser?.friendId) {
+        return refreshedUser;
+      }
+    } catch (error) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+    }
+  }
+
+  return User.findById(user._id);
+};
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -98,13 +150,11 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid email or password." });
     } // If password does not match, return error
 
-    if (!user.friendId) {
-      await user.save();
-    }
+    const authenticatedUser = await ensureUserHasFriendId(user);
 
-    generateToken(user._id, res); // Generate token for authenticated user
+    generateToken(authenticatedUser._id, res); // Generate token for authenticated user
 
-    res.status(200).json(buildAuthUserResponse(user)); // Send user data in response
+    res.status(200).json(buildAuthUserResponse(authenticatedUser)); // Send user data in response
   } catch (error) {
     console.error("error in login controller:", error);
     res.status(500).json({ message: "Internal server error." }); // Handle server errors

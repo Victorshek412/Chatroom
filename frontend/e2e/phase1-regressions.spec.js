@@ -167,6 +167,32 @@ test("keeps the latest chat selected when a slower previous response resolves la
   ).toHaveCount(0);
 });
 
+test("keeps chat actions available after closing the active chat", async ({
+  page,
+}) => {
+  await login(page, users.alice);
+  await expect(page.getByTestId("chat-actions-trigger")).toBeVisible();
+
+  await openChat(page, users.bob);
+  await page.getByTestId("chat-actions-trigger").click();
+  await page.getByTestId("close-chat-action").click();
+
+  await expect(page.getByTestId("no-conversation-placeholder")).toBeVisible();
+  await expect(page.getByTestId("chat-header-empty")).toHaveCount(0);
+  await expect(page.getByTestId("chat-actions-trigger")).toBeVisible();
+
+  await page.getByTestId("chat-actions-trigger").click();
+  await expect(page.getByTestId("open-add-contact")).toBeVisible();
+  await expect(page.getByTestId("close-chat-action")).toBeVisible();
+
+  await page.getByTestId("close-chat-action").click();
+  await expect(page.getByTestId("no-conversation-placeholder")).toBeVisible();
+
+  await page.getByTestId("chat-actions-trigger").click();
+  await page.getByTestId("open-add-contact").click();
+  await expect(page.getByTestId("friend-modal")).toBeVisible();
+});
+
 test("syncs sender messages across tabs without duplicating them", async ({
   page,
   context,

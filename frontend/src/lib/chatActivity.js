@@ -3,6 +3,8 @@ import {
   inferImageMimeTypeFromUrl,
 } from "./messageAttachments";
 
+const toComparableId = (value) => value?.toString?.() ?? String(value ?? "");
+
 export const getListTimeLabel = (value) => {
   if (!value) {
     return "";
@@ -78,4 +80,6 @@ export const getMessagePreview = (message) => {
 export const buildChatActivity = (message) => ({
   previewText: getMessagePreview(message),
   timeLabel: message ? getListTimeLabel(message.createdAt) : "",
+  createdAt: message?.createdAt || "",
+  senderId: message?.senderId ? toComparableId(message.senderId) : "",
 });

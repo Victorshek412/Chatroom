@@ -50,7 +50,12 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
     receiverId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      default: null,
+    },
+    groupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Group",
+      default: null,
     },
     text: {
       type: String,
@@ -71,6 +76,20 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
   },
   { timestamps: true },
 ); // Automatically manage createdAt & updatedAt fields
+
+messageSchema.pre("validate", function ensureConversationTarget(next) {
+  const hasReceiver = Boolean(this.receiverId);
+  const hasGroup = Boolean(this.groupId);
+
+  if (hasReceiver === hasGroup) {
+    this.invalidate(
+      "receiverId",
+      "Messages must target exactly one direct recipient or one group.",
+    );
+  }
+
+  next();
+});
 
 const Message = mongoose.model("Message", messageSchema); // Create the Message model based on the defined schema, allowing us to interact with the messages collection in MongoDB
 export default Message; // Export the Message model for use in other parts of the application

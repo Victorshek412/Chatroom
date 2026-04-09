@@ -1,10 +1,21 @@
 import express from "express";
 import multer from "multer";
 import {
+  addGroupMembers,
+  createGroup,
+  demoteGroupMember,
+  deleteGroup,
   getAllContacts,
   getChatPartners,
+  getMessagesByGroupId,
   getMessageByUserId,
+  getMyGroups,
+  leaveGroup,
+  promoteGroupMember,
+  removeGroupMember,
   sendMessage,
+  sendGroupMessage,
+  updateGroup,
   uploadMessageAttachment,
 } from "../controllers/message.controller.js";
 import {
@@ -46,6 +57,17 @@ const handleSingleAttachmentUpload = (req, res, next) => {
 router.use(arcjetProtection, protectRoute); // Apply ARCJET protection and authentication middleware to all routes in this router
 router.get("/contacts", getAllContacts);
 router.get("/chats", getChatPartners);
+router.get("/groups", getMyGroups);
+router.post("/groups", createGroup);
+router.patch("/groups/:id", updateGroup);
+router.post("/groups/:id/members", addGroupMembers);
+router.post("/groups/:id/members/:memberId/promote", promoteGroupMember);
+router.post("/groups/:id/members/:memberId/demote", demoteGroupMember);
+router.delete("/groups/:id/members/:memberId", removeGroupMember);
+router.post("/groups/:id/leave", leaveGroup);
+router.delete("/groups/:id", deleteGroup);
+router.get("/groups/:id/messages", getMessagesByGroupId);
+router.post("/groups/:id/messages", sendGroupMessage);
 router.post(
   "/attachments/upload",
   handleSingleAttachmentUpload,

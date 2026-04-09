@@ -63,10 +63,12 @@ const defaultMessageDelays = {
 
 let users = [];
 let messages = [];
+let groups = [];
 let friendRequests = [];
 let sessions = new Map();
 let userSockets = new Map();
 let messageCounter = 0;
+let groupCounter = 0;
 let friendRequestCounter = 0;
 let attachmentCounter = 0;
 let messageDelays = { ...defaultMessageDelays };
@@ -85,6 +87,125 @@ const serializeFriendUser = (user) => ({
   fullName: user.fullName,
   profilePicture: user.profilePicture,
   friendId: user.friendId,
+});
+
+const hasOwn = (value, key) =>
+  Object.prototype.hasOwnProperty.call(value ?? {}, key);
+
+const toComparableId = (value) => value?.toString?.() ?? String(value ?? "");
+
+const getGroupOwnerId = (group) =>
+  toComparableId(group?.ownerId ?? group?.createdBy);
+
+const getGroupAdminIds = (group) =>
+  (Array.isArray(group?.adminIds) ? group.adminIds : [])
+    .map((adminId) => toComparableId(adminId))
+    .filter(Boolean);
+
+const isGroupAdmin = (group, userId) => {
+  const comparableUserId = toComparableId(userId);
+  return (
+    comparableUserId === getGroupOwnerId(group) ||
+    getGroupAdminIds(group).includes(comparableUserId)
+  );
+};
+
+const normalizeGroupAdminIds = (memberIds, adminIds, ownerId = null) => {
+  const comparableOwnerId = toComparableId(ownerId);
+  const memberIdSet = new Set(memberIds.map(toComparableId));
+
+  return Array.from(
+    new Set(adminIds.map(toComparableId).filter(Boolean)),
+  ).filter(
+    (adminId) =>
+      memberIdSet.has(adminId) && adminId !== comparableOwnerId,
+  );
+};
+
+const resolveGroupLeadership = ({ memberIds, ownerId, adminIds }) => {
+  const nextMemberIds = Array.from(
+    new Set(memberIds.map(toComparableId).filter(Boolean)),
+  );
+
+  if (nextMemberIds.length === 0) {
+    return {
+      shouldDelete: true,
+      ownerId: null,
+      adminIds: [],
+    };
+  }
+
+  const comparableOwnerId = toComparableId(ownerId);
+  const normalizedAdminIds = normalizeGroupAdminIds(
+    nextMemberIds,
+    adminIds,
+    comparableOwnerId,
+  );
+
+  if (comparableOwnerId && nextMemberIds.includes(comparableOwnerId)) {
+    return {
+      shouldDelete: false,
+      ownerId: comparableOwnerId,
+      adminIds: normalizedAdminIds,
+    };
+  }
+
+  const nextOwnerId =
+    nextMemberIds.find((memberId) => normalizedAdminIds.includes(memberId)) ||
+    nextMemberIds[0];
+
+  return {
+    shouldDelete: false,
+    ownerId: nextOwnerId,
+    adminIds: normalizeGroupAdminIds(nextMemberIds, normalizedAdminIds, nextOwnerId),
+  };
+};
+
+const applyGroupMembershipState = (group, memberIds, adminIds, ownerId) => {
+  const resolvedLeadership = resolveGroupLeadership({
+    memberIds,
+    adminIds,
+    ownerId,
+  });
+
+  if (resolvedLeadership.shouldDelete) {
+    return resolvedLeadership;
+  }
+
+  group.memberIds = memberIds;
+  group.ownerId = resolvedLeadership.ownerId;
+  group.adminIds = resolvedLeadership.adminIds;
+
+  return resolvedLeadership;
+};
+
+const getGroupRole = (group, memberId) => {
+  const comparableMemberId = toComparableId(memberId);
+
+  if (isGroupAdmin(group, comparableMemberId)) {
+    return "admin";
+  }
+
+  return "member";
+};
+
+const serializeGroupForUser = (group, _currentUserId, latestMessage = null) => ({
+  _id: group._id,
+  kind: "group",
+  name: group.name,
+  avatarUrl: group.avatarUrl || "",
+  ownerId: getGroupOwnerId(group),
+  adminIds: getGroupAdminIds(group),
+  members: group.memberIds
+    .map(getUserById)
+    .filter(Boolean)
+    .map((member) => ({
+      ...serializeFriendUser(member),
+      role: getGroupRole(group, member._id),
+    })),
+  memberCount: group.memberIds.length,
+  createdAt: group.createdAt,
+  latestMessage,
 });
 
 const parseCookies = (cookieHeader = "") =>
@@ -171,6 +292,9 @@ const getPartnerIds = (userId) =>
   Array.from(
     new Set(
       messages.flatMap((message) => {
+        if (!message.receiverId) {
+          return [];
+        }
         if (message.senderId === userId) {
           return [message.receiverId];
         }
@@ -181,6 +305,20 @@ const getPartnerIds = (userId) =>
       }),
     ),
   );
+
+const getLatestMessageForPartner = (userId, partnerId) =>
+  [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        (message.senderId === userId && message.receiverId === partnerId) ||
+        (message.senderId === partnerId && message.receiverId === userId),
+      ) || null;
+
+const getGroupById = (groupId) => groups.find((group) => group._id === groupId);
+
+const getLatestMessageForGroup = (groupId) =>
+  [...messages].reverse().find((message) => message.groupId === groupId) || null;
 
 const getAcceptedFriends = (userId) => {
   const acceptedFriends = friendRequests
@@ -261,7 +399,8 @@ const emitOnlineUsers = () => {
 
 const createMessage = ({
   senderId,
-  receiverId,
+  receiverId = null,
+  groupId = null,
   text = "",
   image = null,
   attachments = [],
@@ -275,6 +414,7 @@ const createMessage = ({
     _id: `message-${messageCounter}`,
     senderId,
     receiverId,
+    groupId,
     text,
     image,
     ...(nextAttachments.length > 0 ? { attachments: nextAttachments } : {}),
@@ -304,13 +444,135 @@ const createUploadedAttachment = (file) => {
     {
       secure_url: `${SERVER_ORIGIN}/test/uploads/${storageKey}/${encodeURIComponent(file.originalname)}`,
       original_filename: originalFilename,
-      public_id: `chatroom/message-attachments/${storageKey}`,
+        public_id: `whisper/message-attachments/${storageKey}`,
       bytes: file.size,
       format: extension,
       resource_type: file.mimetype.startsWith("image/") ? "image" : "raw",
     },
     file,
   );
+};
+
+const createGroup = ({ name, createdBy, memberIds }) => {
+  groupCounter += 1;
+  const timestamp = new Date(
+    Date.UTC(2026, 2, 23, 11, Math.min(groupCounter, 59), 0),
+  ).toISOString();
+
+  return {
+    _id: `group-${groupCounter}`,
+    name,
+    avatarUrl: "",
+    createdBy,
+    ownerId: createdBy,
+    adminIds: [],
+    memberIds: Array.from(new Set(memberIds)),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+};
+
+const buildMessageContent = ({ text = "", image = null, attachments }) => {
+  const trimmedText = getTrimmedText(text);
+  const legacyImagePayload = typeof image === "string" ? image.trim() : "";
+  const {
+    attachments: normalizedAttachments,
+    error: attachmentsError,
+  } = normalizeAttachmentsPayload(attachments);
+
+  if (attachmentsError) {
+    return { error: attachmentsError };
+  }
+
+  if (legacyImagePayload && normalizedAttachments.length > 0) {
+    return { error: "Only one attachment is allowed per message." };
+  }
+
+  if (!trimmedText && !legacyImagePayload && normalizedAttachments.length === 0) {
+    return { error: "Text, image, or attachment is required." };
+  }
+
+  let imageUrl = null;
+  let attachmentsToSave = normalizedAttachments;
+
+  if (legacyImagePayload) {
+    const legacyMimeType = getBase64MimeType(legacyImagePayload) || "image/png";
+    imageUrl = legacyImagePayload;
+    attachmentsToSave = [
+      normalizeAttachmentMetadata({
+        url: legacyImagePayload,
+        originalName: "shared-image.png",
+        mimeType: legacyMimeType,
+        size: legacyImagePayload.length,
+        kind: "image",
+        provider: "cloudinary",
+        storageKey: "legacy-image",
+      }),
+    ];
+  } else if (attachmentsToSave[0]?.kind === "image") {
+    imageUrl = attachmentsToSave[0].url;
+  }
+
+  return {
+    text: trimmedText,
+    image: imageUrl,
+    attachments: attachmentsToSave,
+  };
+};
+
+const emitToUserSockets = (userId, eventName, payload, skipSocketId = null) => {
+  userSockets.get(userId)?.forEach((socketId) => {
+    if (socketId !== skipSocketId) {
+      io.to(socketId).emit(eventName, payload);
+    }
+  });
+};
+
+const emitGroupCreated = (group, skipSocketId = null) => {
+  group.memberIds.forEach((memberId) => {
+    emitToUserSockets(
+      memberId,
+      "groupCreated",
+      serializeGroupForUser(group, memberId, getLatestMessageForGroup(group._id)),
+      skipSocketId,
+    );
+  });
+};
+
+const emitGroupUpdated = (group, latestMessage = null, skipSocketId = null) => {
+  group.memberIds.forEach((memberId) => {
+    emitToUserSockets(
+      memberId,
+      "groupUpdated",
+      serializeGroupForUser(group, memberId, latestMessage),
+      skipSocketId,
+    );
+  });
+};
+
+const emitGroupRemoved = (memberIds, groupId, skipSocketId = null) => {
+  memberIds.forEach((memberId) => {
+    emitToUserSockets(
+      memberId,
+      "groupRemoved",
+      { groupId: toComparableId(groupId) },
+      skipSocketId,
+    );
+  });
+};
+
+const emitGroupMessage = (group, message, skipSocketId = null) => {
+  group.memberIds.forEach((memberId) => {
+    emitToUserSockets(
+      memberId,
+      "groupMessage",
+      {
+        group: serializeGroupForUser(group, memberId, message),
+        message,
+      },
+      skipSocketId,
+    );
+  });
 };
 
 const persistAndBroadcastMessage = (
@@ -332,11 +594,33 @@ const persistAndBroadcastMessage = (
   return nextMessage;
 };
 
+const persistAndBroadcastGroupMessage = (
+  group,
+  payload,
+  { skipSocketId = null } = {},
+) => {
+  const nextMessage = createMessage({
+    ...payload,
+    groupId: group._id,
+  });
+  messages.push(nextMessage);
+  group.updatedAt = nextMessage.createdAt;
+  emitGroupMessage(group, nextMessage, skipSocketId);
+  return nextMessage;
+};
+
+const removeGroupById = (groupId) => {
+  groups = groups.filter((group) => group._id !== groupId);
+  messages = messages.filter((message) => message.groupId !== groupId);
+};
+
 const resetState = () => {
   users = baseUsers.map((user) => ({ ...user }));
   friendRequests = [];
+  groups = [];
   sessions = new Map();
   messageCounter = 0;
+  groupCounter = 0;
   friendRequestCounter = 0;
   attachmentCounter = 0;
   messageDelays = { ...defaultMessageDelays };
@@ -637,11 +921,404 @@ app.get("/api/messages/contacts", requireAuth, (req, res) => {
 
 app.get("/api/messages/chats", requireAuth, (req, res) => {
   const partners = getPartnerIds(req.user._id)
-    .map(getUserById)
-    .filter(Boolean)
-    .map(serializeUser);
+    .map((partnerId) => {
+      const partner = getUserById(partnerId);
+      if (!partner) {
+        return null;
+      }
+
+      return {
+        ...serializeUser(partner),
+        latestMessage: getLatestMessageForPartner(req.user._id, partnerId),
+      };
+    })
+    .filter(Boolean);
 
   res.status(200).json(partners);
+});
+
+app.get("/api/messages/groups", requireAuth, (req, res) => {
+  const userGroups = groups
+    .filter((group) => group.memberIds.includes(req.user._id))
+    .map((group) =>
+      serializeGroupForUser(
+        group,
+        req.user._id,
+        getLatestMessageForGroup(group._id),
+      ),
+    )
+    .sort((firstGroup, secondGroup) => {
+      const firstTimestamp = new Date(
+        firstGroup.latestMessage?.createdAt || firstGroup.createdAt,
+      ).getTime();
+      const secondTimestamp = new Date(
+        secondGroup.latestMessage?.createdAt || secondGroup.createdAt,
+      ).getTime();
+      return secondTimestamp - firstTimestamp;
+    });
+
+  res.status(200).json(userGroups);
+});
+
+app.post("/api/messages/groups", requireAuth, (req, res) => {
+  const trimmedName = getTrimmedText(req.body?.name);
+  const creatorId = req.user._id;
+  const invitedMemberIds = Array.from(
+    new Set(
+      (Array.isArray(req.body?.memberIds) ? req.body.memberIds : [])
+        .map((memberId) => String(memberId || "").trim())
+        .filter((memberId) => memberId && memberId !== creatorId),
+    ),
+  );
+
+  if (!trimmedName) {
+    return res.status(400).json({ message: "Group name is required." });
+  }
+
+  if (invitedMemberIds.length === 0) {
+    return res.status(400).json({ message: "Select at least one member." });
+  }
+
+  const acceptedFriendIds = new Set(
+    getAcceptedFriends(creatorId).map((friend) => friend._id),
+  );
+
+  if (invitedMemberIds.some((memberId) => !acceptedFriendIds.has(memberId))) {
+    return res.status(400).json({
+      message: "You can only create groups with accepted friends.",
+    });
+  }
+
+  if (invitedMemberIds.some((memberId) => !getUserById(memberId))) {
+    return res.status(404).json({ message: "One or more group members were not found." });
+  }
+
+  const nextGroup = createGroup({
+    name: trimmedName,
+    createdBy: creatorId,
+    memberIds: [creatorId, ...invitedMemberIds],
+  });
+  groups.push(nextGroup);
+  emitGroupCreated(nextGroup, req.get("x-socket-id") || null);
+
+  return res.status(201).json(serializeGroupForUser(nextGroup, creatorId));
+});
+
+app.patch("/api/messages/groups/:id", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  if (!isGroupAdmin(group, req.user._id)) {
+    return res.status(403).json({ message: "Only administrators can edit this group." });
+  }
+
+  const hasName = hasOwn(req.body, "name");
+  const hasAvatar = hasOwn(req.body, "avatar");
+
+  if (!hasName && !hasAvatar) {
+    return res.status(400).json({ message: "No group changes were provided." });
+  }
+
+  if (hasName) {
+    const trimmedName = getTrimmedText(req.body?.name);
+    if (!trimmedName) {
+      return res.status(400).json({ message: "Group name is required." });
+    }
+
+    group.name = trimmedName;
+  }
+
+  if (hasAvatar) {
+    const nextAvatar =
+      typeof req.body?.avatar === "string" ? req.body.avatar.trim() : req.body?.avatar;
+
+    if (nextAvatar == null || nextAvatar === "") {
+      group.avatarUrl = "";
+    } else if (typeof nextAvatar === "string" && nextAvatar.startsWith("data:")) {
+      group.avatarUrl = nextAvatar;
+    } else {
+      return res.status(400).json({ message: "Invalid group avatar." });
+    }
+  }
+
+  group.updatedAt = new Date().toISOString();
+  const latestMessage = getLatestMessageForGroup(group._id);
+  emitGroupUpdated(group, latestMessage, req.get("x-socket-id") || null);
+
+  return res.status(200).json(
+    serializeGroupForUser(group, req.user._id, latestMessage),
+  );
+});
+
+app.post("/api/messages/groups/:id/members", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  if (!isGroupAdmin(group, req.user._id)) {
+    return res.status(403).json({ message: "Only administrators can manage this group." });
+  }
+
+  const requestedMemberIds = Array.from(
+    new Set(
+      (Array.isArray(req.body?.memberIds) ? req.body.memberIds : [])
+        .map((memberId) => String(memberId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const nextMemberIdsToAdd = requestedMemberIds.filter(
+    (memberId) => !group.memberIds.includes(memberId),
+  );
+
+  if (nextMemberIdsToAdd.length === 0) {
+    return res.status(400).json({ message: "Select at least one new member." });
+  }
+
+  const acceptedFriendIds = new Set(
+    getAcceptedFriends(req.user._id).map((friend) => friend._id),
+  );
+
+  if (nextMemberIdsToAdd.some((memberId) => !acceptedFriendIds.has(memberId))) {
+    return res.status(400).json({
+      message: "You can only add accepted friends to this group.",
+    });
+  }
+
+  if (nextMemberIdsToAdd.some((memberId) => !getUserById(memberId))) {
+    return res.status(404).json({ message: "One or more group members were not found." });
+  }
+
+  group.memberIds = [...group.memberIds, ...nextMemberIdsToAdd];
+  group.updatedAt = new Date().toISOString();
+
+  const latestMessage = getLatestMessageForGroup(group._id);
+  emitGroupUpdated(group, latestMessage, req.get("x-socket-id") || null);
+
+  return res.status(200).json(
+    serializeGroupForUser(group, req.user._id, latestMessage),
+  );
+});
+
+app.post("/api/messages/groups/:id/members/:memberId/promote", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+  const targetMemberId = String(req.params.memberId || "").trim();
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  if (!isGroupAdmin(group, req.user._id)) {
+    return res.status(403).json({ message: "Only administrators can manage this group." });
+  }
+
+  if (!group.memberIds.includes(targetMemberId)) {
+    return res.status(404).json({ message: "Member not found." });
+  }
+
+  if (!isGroupAdmin(group, targetMemberId)) {
+    group.adminIds = normalizeGroupAdminIds(
+      group.memberIds,
+      [...getGroupAdminIds(group), targetMemberId],
+      getGroupOwnerId(group),
+    );
+    group.updatedAt = new Date().toISOString();
+  }
+
+  const latestMessage = getLatestMessageForGroup(group._id);
+  emitGroupUpdated(group, latestMessage, req.get("x-socket-id") || null);
+
+  return res.status(200).json(
+    serializeGroupForUser(group, req.user._id, latestMessage),
+  );
+});
+
+app.post("/api/messages/groups/:id/members/:memberId/demote", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+  const targetMemberId = String(req.params.memberId || "").trim();
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  if (!isGroupAdmin(group, req.user._id)) {
+    return res.status(403).json({ message: "Only administrators can manage this group." });
+  }
+
+  if (!group.memberIds.includes(targetMemberId)) {
+    return res.status(404).json({ message: "Member not found." });
+  }
+
+  if (targetMemberId === req.user._id) {
+    return res.status(400).json({ message: "You cannot change your own administrator role here." });
+  }
+
+  if (isGroupAdmin(group, targetMemberId)) {
+    applyGroupMembershipState(
+      group,
+      group.memberIds,
+      getGroupAdminIds(group).filter((adminId) => adminId !== targetMemberId),
+      getGroupOwnerId(group) === targetMemberId ? null : getGroupOwnerId(group),
+    );
+    group.updatedAt = new Date().toISOString();
+  }
+
+  const latestMessage = getLatestMessageForGroup(group._id);
+  emitGroupUpdated(group, latestMessage, req.get("x-socket-id") || null);
+
+  return res.status(200).json(
+    serializeGroupForUser(group, req.user._id, latestMessage),
+  );
+});
+
+app.delete("/api/messages/groups/:id/members/:memberId", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+  const targetMemberId = String(req.params.memberId || "").trim();
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  if (!isGroupAdmin(group, req.user._id)) {
+    return res.status(403).json({ message: "Only administrators can manage this group." });
+  }
+
+  if (targetMemberId === req.user._id) {
+    return res.status(400).json({ message: "Use leave group to remove yourself." });
+  }
+
+  if (!group.memberIds.includes(targetMemberId)) {
+    return res.status(404).json({ message: "Member not found." });
+  }
+
+  const remainingMemberIds = group.memberIds.filter((memberId) => memberId !== targetMemberId);
+  const leadership = applyGroupMembershipState(
+    group,
+    remainingMemberIds,
+    getGroupAdminIds(group).filter((adminId) => adminId !== targetMemberId),
+    getGroupOwnerId(group),
+  );
+
+  if (leadership.shouldDelete) {
+    const memberIds = [...group.memberIds];
+    removeGroupById(group._id);
+    emitGroupRemoved(memberIds, group._id, req.get("x-socket-id") || null);
+
+    return res.status(200).json({
+      groupId: group._id,
+      deleted: true,
+    });
+  }
+
+  group.updatedAt = new Date().toISOString();
+
+  const latestMessage = getLatestMessageForGroup(group._id);
+  emitGroupUpdated(group, latestMessage, req.get("x-socket-id") || null);
+  emitGroupRemoved([targetMemberId], group._id, req.get("x-socket-id") || null);
+
+  return res.status(200).json(
+    serializeGroupForUser(group, req.user._id, latestMessage),
+  );
+});
+
+app.post("/api/messages/groups/:id/leave", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  const leavingUserId = req.user._id;
+  const remainingMemberIds = group.memberIds.filter((memberId) => memberId !== leavingUserId);
+
+  if (remainingMemberIds.length === 0) {
+    removeGroupById(group._id);
+    emitGroupRemoved([leavingUserId], group._id, req.get("x-socket-id") || null);
+
+    return res.status(200).json({
+      groupId: group._id,
+      deleted: true,
+    });
+  }
+
+  applyGroupMembershipState(
+    group,
+    remainingMemberIds,
+    getGroupAdminIds(group).filter((adminId) => adminId !== leavingUserId),
+    getGroupOwnerId(group),
+  );
+  group.updatedAt = new Date().toISOString();
+
+  const latestMessage = getLatestMessageForGroup(group._id);
+  emitGroupUpdated(group, latestMessage, req.get("x-socket-id") || null);
+  emitGroupRemoved([leavingUserId], group._id, req.get("x-socket-id") || null);
+
+  return res.status(200).json({
+    groupId: group._id,
+    deleted: false,
+  });
+});
+
+app.delete("/api/messages/groups/:id", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  if (!isGroupAdmin(group, req.user._id)) {
+    return res.status(403).json({ message: "Only administrators can delete this group." });
+  }
+
+  const memberIds = [...group.memberIds];
+  removeGroupById(group._id);
+  emitGroupRemoved(memberIds, group._id, req.get("x-socket-id") || null);
+
+  return res.status(200).json({ groupId: group._id });
+});
+
+app.get("/api/messages/groups/:id/messages", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  const groupMessages = messages.filter((message) => message.groupId === group._id);
+  return res.status(200).json(groupMessages);
+});
+
+app.post("/api/messages/groups/:id/messages", requireAuth, (req, res) => {
+  const group = getGroupById(req.params.id);
+
+  if (!group || !group.memberIds.includes(req.user._id)) {
+    return res.status(404).json({ message: "Group not found." });
+  }
+
+  const messageContent = buildMessageContent(req.body);
+  if (messageContent.error) {
+    return res.status(400).json({ message: messageContent.error });
+  }
+
+  const nextMessage = persistAndBroadcastGroupMessage(
+    group,
+    {
+      senderId: req.user._id,
+      text: messageContent.text,
+      image: messageContent.image,
+      attachments: messageContent.attachments,
+    },
+    { skipSocketId: req.get("x-socket-id") || null },
+  );
+
+  return res.status(201).json({
+    group: serializeGroupForUser(group, req.user._id, nextMessage),
+    message: nextMessage,
+  });
 });
 
 app.get("/api/messages/:id", requireAuth, async (req, res) => {
@@ -683,62 +1360,22 @@ app.post(
 
 app.post("/api/messages/send/:id", requireAuth, (req, res) => {
   const receiverId = req.params.id;
-  const { text = "", image = null, attachments } = req.body;
-  const trimmedText = getTrimmedText(text);
-  const legacyImagePayload = typeof image === "string" ? image.trim() : "";
-  const {
-    attachments: normalizedAttachments,
-    error: attachmentsError,
-  } = normalizeAttachmentsPayload(attachments);
-
-  if (attachmentsError) {
-    return res.status(400).json({ message: attachmentsError });
-  }
-
-  if (legacyImagePayload && normalizedAttachments.length > 0) {
-    return res
-      .status(400)
-      .json({ message: "Only one attachment is allowed per message." });
-  }
-
-  if (!trimmedText && !legacyImagePayload && normalizedAttachments.length === 0) {
-    return res.status(400).json({
-      message: "Text, image, or attachment is required.",
-    });
-  }
-
   if (!getUserById(receiverId)) {
     return res.status(404).json({ message: "Receiver not found." });
   }
 
-  let imageUrl = null;
-  let attachmentsToSave = normalizedAttachments;
-
-  if (legacyImagePayload) {
-    const legacyMimeType = getBase64MimeType(legacyImagePayload) || "image/png";
-    imageUrl = legacyImagePayload;
-    attachmentsToSave = [
-      normalizeAttachmentMetadata({
-        url: legacyImagePayload,
-        originalName: "shared-image.png",
-        mimeType: legacyMimeType,
-        size: legacyImagePayload.length,
-        kind: "image",
-        provider: "cloudinary",
-        storageKey: "legacy-image",
-      }),
-    ];
-  } else if (attachmentsToSave[0]?.kind === "image") {
-    imageUrl = attachmentsToSave[0].url;
+  const messageContent = buildMessageContent(req.body);
+  if (messageContent.error) {
+    return res.status(400).json({ message: messageContent.error });
   }
 
   const nextMessage = persistAndBroadcastMessage(
     {
       senderId: req.user._id,
       receiverId,
-      text: trimmedText,
-      image: imageUrl,
-      attachments: attachmentsToSave,
+      text: messageContent.text,
+      image: messageContent.image,
+      attachments: messageContent.attachments,
     },
     { skipSocketId: req.get("x-socket-id") || null },
   );

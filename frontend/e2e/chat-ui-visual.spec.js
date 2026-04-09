@@ -45,6 +45,46 @@ async function sendMessage(page, text) {
   await page.getByTestId("send-message").click();
 }
 
+async function expectMessageBubbleWithinBounds(page, text) {
+  const messageList = page.getByTestId("message-list");
+  const bubble = messageList.getByText(text).last().locator("xpath=..");
+
+  await expect(bubble).toBeVisible();
+
+  const [bubbleBox, messageListBox] = await Promise.all([
+    bubble.boundingBox(),
+    messageList.boundingBox(),
+  ]);
+
+  expect(bubbleBox).not.toBeNull();
+  expect(messageListBox).not.toBeNull();
+  expect(bubbleBox.x).toBeGreaterThanOrEqual(messageListBox.x - 1);
+  expect(bubbleBox.x + bubbleBox.width).toBeLessThanOrEqual(
+    messageListBox.x + messageListBox.width + 1,
+  );
+}
+
+async function expectDesktopChatShellScale(page) {
+  const shell = page.getByTestId("chat-shell");
+
+  await expect(shell).toBeVisible();
+
+  const shellBox = await shell.boundingBox();
+
+  expect(shellBox).not.toBeNull();
+  expect(shellBox.width).toBeGreaterThan(1100);
+  expect(shellBox.height).toBeGreaterThan(760);
+}
+
+test("scales the desktop chat shell to match the 110 percent reference size", async ({
+  page,
+  request,
+}) => {
+  await resetServer(request);
+  await login(page, users.alice);
+  await expectDesktopChatShellScale(page);
+});
+
 test("captures chat UI reference screenshots in light and dark mode", async ({
   browser,
   page,
@@ -59,6 +99,7 @@ test("captures chat UI reference screenshots in light and dark mode", async ({
   try {
     await login(page, users.alice);
     await login(bobPage, users.bob);
+    await expectDesktopChatShellScale(page);
 
     await openConversation(page, users.bob);
     await openConversation(bobPage, users.alice);
@@ -101,5 +142,36 @@ test("captures chat UI reference screenshots in light and dark mode", async ({
     } catch {
       // Context may already be closed by the test body.
     }
+  }
+});
+
+test("wraps long unbroken messages without overflowing the chat pane", async ({
+  browser,
+  page,
+  request,
+}) => {
+  await resetServer(request);
+
+  const bobContext = await browser.newContext({ baseURL: "http://localhost:4173" });
+  const bobPage = await bobContext.newPage();
+  const incomingLongText = `incoming-${"a".repeat(240)}`;
+  const outgoingLongText = `outgoing-${"b".repeat(240)}`;
+
+  try {
+    await login(page, users.alice);
+    await login(bobPage, users.bob);
+
+    await openConversation(page, users.bob);
+    await openConversation(bobPage, users.alice);
+
+    await sendMessage(bobPage, incomingLongText);
+    await expect(page.getByTestId("message-list").getByText(incomingLongText)).toBeVisible();
+    await expectMessageBubbleWithinBounds(page, incomingLongText);
+
+    await sendMessage(page, outgoingLongText);
+    await expect(page.getByTestId("message-list").getByText(outgoingLongText)).toBeVisible();
+    await expectMessageBubbleWithinBounds(page, outgoingLongText);
+  } finally {
+    await bobContext.close();
   }
 });

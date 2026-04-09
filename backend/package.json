@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "e2e:mock-server": "node e2e/mockServer.js"
+    "e2e:mock-server": "node e2e/mockServer.js",
+    "test:integration:concurrency": "node --test e2e/mongo-concurrency.test.js"
   },
   "keywords": [],
   "author": "",

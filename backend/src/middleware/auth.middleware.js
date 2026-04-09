@@ -24,10 +24,6 @@ export const protectRoute = async (req, res, next) => {
       return res.status(401).json({ message: "User not found" });
     }
 
-    if (!user.friendId) {
-      await user.save();
-    }
-
     const safeUser = user.toObject();
     delete safeUser.password;
 

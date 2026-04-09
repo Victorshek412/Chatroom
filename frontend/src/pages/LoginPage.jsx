@@ -96,7 +96,7 @@ function LoginPage() {
               Welcome back
             </h1>
             <p className="mt-2 text-[14px]" style={{ color: "var(--ct-text2)" }}>
-              Sign in to continue to Chatroom
+              Sign in to continue to Whisper
             </p>
           </div>
 
@@ -136,7 +136,7 @@ function LoginPage() {
             </div>
 
             <div>
-              <div className="mb-[9px] flex items-center justify-between gap-3">
+              <div className="mb-[9px]">
                 <label
                   htmlFor="login-password"
                   className="block text-[13px] font-semibold"
@@ -144,13 +144,6 @@ function LoginPage() {
                 >
                   Password
                 </label>
-                <button
-                  type="button"
-                  className="text-[13px] font-semibold"
-                  style={{ color: "var(--ct-text3)" }}
-                >
-                  Forgot password?
-                </button>
               </div>
               <div
                 className="flex h-[54px] items-center gap-3 rounded-[15px] px-[15px]"

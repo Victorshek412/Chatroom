@@ -36,6 +36,11 @@ function useFocusTrap({
   onClose,
 }) {
   const previousActiveElementRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -75,7 +80,7 @@ function useFocusTrap({
 
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose?.();
+        onCloseRef.current?.();
         return;
       }
 
@@ -144,7 +149,7 @@ function useFocusTrap({
         focusElement(previousActiveElement);
       }
     };
-  }, [containerRef, initialFocusRef, isOpen, onClose]);
+  }, [containerRef, initialFocusRef, isOpen]);
 }
 
 export default useFocusTrap;

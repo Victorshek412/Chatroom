@@ -1,6 +1,6 @@
 export const MESSAGE_ATTACHMENT_FILE_FIELD = "file";
 export const MESSAGE_ATTACHMENT_PROVIDER = "cloudinary";
-export const MESSAGE_ATTACHMENT_FOLDER = "chatroom/message-attachments";
+export const MESSAGE_ATTACHMENT_FOLDER = "whisper/message-attachments";
 export const MAX_MESSAGE_ATTACHMENT_SIZE = 5 * 1024 * 1024;
 
 const PDF_MIME_TYPE = "application/pdf";
