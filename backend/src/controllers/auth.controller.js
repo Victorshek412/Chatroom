@@ -4,6 +4,71 @@ import bcrypt from "bcryptjs";
 import { ENV } from "../lib/env.js";
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
 import cloudinary from "../lib/cloudinary.js";
+import { generateUniqueFriendId } from "../lib/friendIds.js";
+
+const buildAuthUserResponse = (user) => ({
+  _id: user._id,
+  fullName: user.fullName,
+  email: user.email,
+  profilePicture: user.profilePicture,
+  friendId: user.friendId,
+});
+
+const FRIEND_ID_MISSING_FILTER = {
+  $or: [
+    { friendId: { $exists: false } },
+    { friendId: null },
+    { friendId: "" },
+  ],
+};
+
+const ensureUserHasFriendId = async (user) => {
+  if (!user?._id || user.friendId) {
+    return user;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const candidate = await generateUniqueFriendId((friendId) =>
+      User.exists({
+        friendId,
+        _id: { $ne: user._id },
+      }),
+    );
+
+    try {
+      const updatedUser = await User.findOneAndUpdate(
+        {
+          _id: user._id,
+          ...FRIEND_ID_MISSING_FILTER,
+        },
+        {
+          $set: { friendId: candidate },
+        },
+        { new: true },
+      );
+
+      if (updatedUser) {
+        return updatedUser;
+      }
+
+      const refreshedUser = await User.findById(user._id);
+      if (refreshedUser?.friendId) {
+        return refreshedUser;
+      }
+    } catch (error) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+    }
+  }
+
+  const refreshedUser = await User.findById(user._id);
+  if (refreshedUser?.friendId) {
+    return refreshedUser;
+  }
+
+  throw new Error("Failed to assign Friend ID during login.");
+};
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -49,12 +114,7 @@ export const signup = async (req, res) => {
       generateToken(savedUser._id, res); // A function that generate a token for
       //new user authentication and sends it in the response cookies
 
-      res.status(201).json({
-        _id: newUser._id,
-        fullName: newUser.fullName,
-        email: newUser.email,
-        profilePicture: newUser.profilePicture,
-      });
+      res.status(201).json(buildAuthUserResponse(savedUser));
       //res.status(201).json() is used to send a response back to the client indicating that a new resource has been successfully created.
 
       //welcome email
@@ -95,14 +155,11 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid email or password." });
     } // If password does not match, return error
 
-    generateToken(user._id, res); // Generate token for authenticated user
+    const authenticatedUser = await ensureUserHasFriendId(user);
 
-    res.status(200).json({
-      _id: user._id,
-      fullName: user.fullName,
-      email: user.email,
-      profilePicture: user.profilePicture,
-    }); // Send user data in response
+    generateToken(authenticatedUser._id, res); // Generate token for authenticated user
+
+    res.status(200).json(buildAuthUserResponse(authenticatedUser)); // Send user data in response
   } catch (error) {
     console.error("error in login controller:", error);
     res.status(500).json({ message: "Internal server error." }); // Handle server errors

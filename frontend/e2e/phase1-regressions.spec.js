@@ -68,6 +68,59 @@ function captureSoundFailures(page) {
   return failures;
 }
 
+async function installAudioSpy(page) {
+  await page.addInitScript(() => {
+    window.__audioPlayLog = [];
+    window.__pageVisibilityState = "visible";
+    window.__pageHasFocus = true;
+    window.HTMLMediaElement.prototype.play = function () {
+      window.__audioPlayLog.push(this.currentSrc || this.src || "");
+      return Promise.resolve();
+    };
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => window.__pageVisibilityState || "visible",
+    });
+
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => window.__pageVisibilityState !== "visible",
+    });
+
+    document.hasFocus = () => window.__pageHasFocus !== false;
+  });
+}
+
+async function getNotificationPlayCount(page) {
+  return page.evaluate(
+    () =>
+      (window.__audioPlayLog || []).filter((src) =>
+        src.includes("/sound/notification.mp3"),
+      ).length,
+  );
+}
+
+async function resetAudioPlayLog(page) {
+  await page.evaluate(() => {
+    window.__audioPlayLog = [];
+  });
+}
+
+async function setPageActiveState(page, isActive) {
+  await page.evaluate((active) => {
+    window.__pageVisibilityState = active ? "visible" : "hidden";
+    window.__pageHasFocus = active;
+  }, isActive);
+}
+
+async function setPageFocusState(page, hasFocus) {
+  await page.evaluate((focused) => {
+    window.__pageVisibilityState = "visible";
+    window.__pageHasFocus = focused;
+  }, hasFocus);
+}
+
 test.beforeEach(async ({ request }) => {
   await resetServer(request);
 });
@@ -112,6 +165,32 @@ test("keeps the latest chat selected when a slower previous response resolves la
   await expect(
     page.getByText("Bob says hello from the slow thread"),
   ).toHaveCount(0);
+});
+
+test("keeps chat actions available after closing the active chat", async ({
+  page,
+}) => {
+  await login(page, users.alice);
+  await expect(page.getByTestId("chat-actions-trigger")).toBeVisible();
+
+  await openChat(page, users.bob);
+  await page.getByTestId("chat-actions-trigger").click();
+  await page.getByTestId("close-chat-action").click();
+
+  await expect(page.getByTestId("no-conversation-placeholder")).toBeVisible();
+  await expect(page.getByTestId("chat-header-empty")).toHaveCount(0);
+  await expect(page.getByTestId("chat-actions-trigger")).toBeVisible();
+
+  await page.getByTestId("chat-actions-trigger").click();
+  await expect(page.getByTestId("open-add-contact")).toBeVisible();
+  await expect(page.getByTestId("close-chat-action")).toBeVisible();
+
+  await page.getByTestId("close-chat-action").click();
+  await expect(page.getByTestId("no-conversation-placeholder")).toBeVisible();
+
+  await page.getByTestId("chat-actions-trigger").click();
+  await page.getByTestId("open-add-contact").click();
+  await expect(page.getByTestId("friend-modal")).toBeVisible();
 });
 
 test("syncs sender messages across tabs without duplicating them", async ({
@@ -207,4 +286,84 @@ test("keeps touched sound assets valid during the covered chat flows", async ({
 
   await page.waitForTimeout(200);
   expect(soundFailures).toEqual([]);
+});
+
+test("only plays incoming notifications while the page is hidden and respects mute", async ({
+  page,
+  request,
+}) => {
+  await installAudioSpy(page);
+  await login(page, users.alice);
+
+  await page.getByTestId("sound-toggle").click();
+  await resetAudioPlayLog(page);
+
+  const activePagePushResponse = await request.post(
+    `${mockServerUrl}/test/push-message`,
+    {
+      data: {
+        senderId: users.bob.id,
+        receiverId: users.alice.id,
+        text: "Active page should stay silent",
+      },
+    },
+  );
+  expect(activePagePushResponse.ok()).toBeTruthy();
+
+  await page.waitForTimeout(200);
+  await expect.poll(async () => getNotificationPlayCount(page)).toBe(0);
+
+  await setPageFocusState(page, false);
+
+  const visibleUnfocusedPushResponse = await request.post(
+    `${mockServerUrl}/test/push-message`,
+    {
+      data: {
+        senderId: users.bob.id,
+        receiverId: users.alice.id,
+        text: "Visible page without focus should stay silent",
+      },
+    },
+  );
+  expect(visibleUnfocusedPushResponse.ok()).toBeTruthy();
+
+  await page.waitForTimeout(200);
+  await expect.poll(async () => getNotificationPlayCount(page)).toBe(0);
+
+  await setPageActiveState(page, false);
+
+  const hiddenPagePushResponse = await request.post(
+    `${mockServerUrl}/test/push-message`,
+    {
+      data: {
+        senderId: users.bob.id,
+        receiverId: users.alice.id,
+        text: "Hidden page should play notification",
+      },
+    },
+  );
+  expect(hiddenPagePushResponse.ok()).toBeTruthy();
+
+  await expect.poll(async () => getNotificationPlayCount(page)).toBe(1);
+
+  await setPageActiveState(page, true);
+
+  await page.getByTestId("sound-toggle").click();
+
+  await setPageActiveState(page, false);
+
+  const mutedHiddenPagePushResponse = await request.post(
+    `${mockServerUrl}/test/push-message`,
+    {
+      data: {
+        senderId: users.bob.id,
+        receiverId: users.alice.id,
+        text: "Muted hidden page should stay silent",
+      },
+    },
+  );
+  expect(mutedHiddenPagePushResponse.ok()).toBeTruthy();
+
+  await page.waitForTimeout(200);
+  await expect.poll(async () => getNotificationPlayCount(page)).toBe(1);
 });

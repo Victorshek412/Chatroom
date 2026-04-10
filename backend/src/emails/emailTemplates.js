@@ -1,51 +1,119 @@
+const escapeHtml = (value = "") =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const sanitizeUrl = (value = "") => {
+  try {
+    const parsedUrl = new URL(String(value));
+    return ["http:", "https:"].includes(parsedUrl.protocol)
+      ? parsedUrl.toString()
+      : "#";
+  } catch {
+    return "#";
+  }
+};
+
 export function createWelcomeEmailTemplate(name, clientURL) {
-  return `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to Messenger</title>
-  </head>
-  <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-    <div style="background: linear-gradient(to right, #36D1DC, #5B86E5); padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
-      <img src="https://img.freepik.com/free-vector/hand-drawn-message-element-vector-cute-sticker_53876-118344.jpg?t=st=1741295028~exp=1741298628~hmac=0d076f885d7095f0b5bc8d34136cd6d64749455f8cb5f29a924281bafc11b96c&w=1480" alt="Messenger Logo" style="width: 80px; height: 80px; margin-bottom: 20px; border-radius: 50%; background-color: white; padding: 10px;">
-      <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 500;">Welcome to Messenger!</h1>
-    </div>
-    <div style="background-color: #ffffff; padding: 35px; border-radius: 0 0 12px 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-      <p style="font-size: 18px; color: #5B86E5;"><strong>Hello ${name},</strong></p>
-      <p>We're excited to have you join our messaging platform! Messenger connects you with friends, family, and colleagues in real-time, no matter where they are.</p>
-      
-      <div style="background-color: #f8f9fa; padding: 25px; border-radius: 10px; margin: 25px 0; border-left: 4px solid #36D1DC;">
-        <p style="font-size: 16px; margin: 0 0 15px 0;"><strong>Get started in just a few steps:</strong></p>
-        <ul style="padding-left: 20px; margin: 0;">
-          <li style="margin-bottom: 10px;">Set up your profile picture</li>
-          <li style="margin-bottom: 10px;">Find and add your contacts</li>
-          <li style="margin-bottom: 10px;">Start a conversation</li>
-          <li style="margin-bottom: 0;">Share photos, videos, and more</li>
-        </ul>
+  const safeName = escapeHtml(name);
+  const safeClientURL = sanitizeUrl(clientURL);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Whisper</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #EBEBEB; max-width: 560px; margin: 0 auto; padding: 32px 16px; background-color: #0D0D0D;">
+  <div style="background-color: #171717; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 20px rgba(0,0,0,0.50), 0 1px 4px rgba(0,0,0,0.30); border: 1px solid rgba(255,255,255,0.08);">
+    <div style="background-color: #212121; padding: 34px 40px 30px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.06);">
+      <div style="width: 48px; height: 48px; margin: 0 auto 14px; background-color: rgba(255,255,255,0.08); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="#D4D4D4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </div>
-      
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${clientURL}" style="background: linear-gradient(to right, #36D1DC, #5B86E5); color: white; text-decoration: none; padding: 12px 30px; border-radius: 50px; font-weight: 500; display: inline-block;">Open Messenger</a>
-      </div>
-      
-      <p style="margin-bottom: 5px;">If you need any help or have questions, we're always here to assist you.</p>
-      <p style="margin-top: 0;">Happy messaging!</p>
-      
-      <p style="margin-top: 25px; margin-bottom: 0;">Best regards,<br>The Messenger Team</p>
+      <h1 style="color: #EBEBEB; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em;">Welcome to Whisper</h1>
+      <p style="color: #585858; margin: 6px 0 0; font-size: 13px; font-weight: 400;">Secure, minimal messaging</p>
     </div>
-    
-    <div style="text-align: center; padding: 20px; color: #999; font-size: 12px;">
-      <p>© 2025 Messenger. All rights reserved.</p>
-      <p>
-        <a href="#" style="color: #5B86E5; text-decoration: none; margin: 0 10px;">Privacy Policy</a>
-        <a href="#" style="color: #5B86E5; text-decoration: none; margin: 0 10px;">Terms of Service</a>
-        <a href="#" style="color: #5B86E5; text-decoration: none; margin: 0 10px;">Contact Us</a>
+
+    <div style="padding: 36px 40px 32px;">
+      <p style="font-size: 15px; font-weight: 600; color: #EBEBEB; margin: 0 0 6px; letter-spacing: -0.01em;">Hello ${safeName},</p>
+      <p style="font-size: 13.5px; color: #909090; margin: 0 0 28px; line-height: 1.7;">
+        We're excited to have you join Whisper. Connect with friends, family, and colleagues in real-time — privately and effortlessly.
+      </p>
+
+      <div style="background-color: #1E1E1E; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 22px 24px; margin-bottom: 28px;">
+        <p style="font-size: 13px; font-weight: 600; color: #EBEBEB; margin: 0 0 16px; letter-spacing: -0.01em;">Get started</p>
+
+        <table role="presentation" style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 0 0 14px; vertical-align: top; width: 24px;">
+              <div style="width: 20px; height: 20px; border-radius: 6px; background-color: #2A2A2A; text-align: center; line-height: 20px; font-size: 10px; font-weight: 600; color: #909090;">1</div>
+            </td>
+            <td style="padding: 0 0 14px 10px; vertical-align: top;">
+              <p style="margin: 0; font-size: 13px; color: #EBEBEB; font-weight: 500; letter-spacing: -0.01em;">Set up your profile</p>
+              <p style="margin: 3px 0 0; font-size: 11.5px; color: #585858; line-height: 1.5;">Add a photo and display name</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 0 14px; vertical-align: top; width: 24px;">
+              <div style="width: 20px; height: 20px; border-radius: 6px; background-color: #2A2A2A; text-align: center; line-height: 20px; font-size: 10px; font-weight: 600; color: #909090;">2</div>
+            </td>
+            <td style="padding: 0 0 14px 10px; vertical-align: top;">
+              <p style="margin: 0; font-size: 13px; color: #EBEBEB; font-weight: 500; letter-spacing: -0.01em;">Find your contacts</p>
+              <p style="margin: 3px 0 0; font-size: 11.5px; color: #585858; line-height: 1.5;">Search by User ID or name</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 0 14px; vertical-align: top; width: 24px;">
+              <div style="width: 20px; height: 20px; border-radius: 6px; background-color: #2A2A2A; text-align: center; line-height: 20px; font-size: 10px; font-weight: 600; color: #909090;">3</div>
+            </td>
+            <td style="padding: 0 0 14px 10px; vertical-align: top;">
+              <p style="margin: 0; font-size: 13px; color: #EBEBEB; font-weight: 500; letter-spacing: -0.01em;">Start a conversation</p>
+              <p style="margin: 3px 0 0; font-size: 11.5px; color: #585858; line-height: 1.5;">Send messages, images, and files</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0; vertical-align: top; width: 24px;">
+              <div style="width: 20px; height: 20px; border-radius: 6px; background-color: #2A2A2A; text-align: center; line-height: 20px; font-size: 10px; font-weight: 600; color: #909090;">4</div>
+            </td>
+            <td style="padding: 0 0 0 10px; vertical-align: top;">
+              <p style="margin: 0; font-size: 13px; color: #EBEBEB; font-weight: 500; letter-spacing: -0.01em;">Create a group</p>
+              <p style="margin: 3px 0 0; font-size: 11.5px; color: #585858; line-height: 1.5;">Chat with multiple people at once</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 28px;">
+        <a href="${safeClientURL}" style="display: inline-block; background-color: #E2E2E2; color: #111111; text-decoration: none; padding: 11px 36px; border-radius: 10px; font-size: 13px; font-weight: 600; letter-spacing: -0.01em;">Open Whisper</a>
+      </div>
+
+      <div style="height: 1px; background-color: rgba(255,255,255,0.06); margin-bottom: 20px;"></div>
+
+      <p style="font-size: 12.5px; color: #585858; margin: 0 0 4px; line-height: 1.7;">
+        If you need any help, reply to this email — we're always here.
+      </p>
+      <p style="font-size: 12.5px; color: #909090; margin: 16px 0 0; font-weight: 500;">
+        — The Whisper Team
       </p>
     </div>
-  </body>
-  </html>
-  `;
+  </div>
+
+  <div style="text-align: center; padding: 24px 16px 8px;">
+    <p style="font-size: 11px; color: #585858; margin: 0 0 8px;">&copy; ${new Date().getFullYear()} Whisper. All rights reserved.</p>
+    <p style="margin: 0;">
+      <a href="#" style="color: #909090; text-decoration: none; font-size: 11px; margin: 0 8px;">Privacy</a>
+      <span style="color: rgba(255,255,255,0.08); font-size: 10px;">&middot;</span>
+      <a href="#" style="color: #909090; text-decoration: none; font-size: 11px; margin: 0 8px;">Terms</a>
+      <span style="color: rgba(255,255,255,0.08); font-size: 10px;">&middot;</span>
+      <a href="#" style="color: #909090; text-decoration: none; font-size: 11px; margin: 0 8px;">Contact</a>
+    </p>
+  </div>
+</body>
+</html>`;
 }
-// This function generates a welcome email template with the user's name and a link to the client URL.
