@@ -691,6 +691,9 @@ test("lets administrators drag the members modal, promote members, demote admini
     ]);
     await page.getByTestId("open-add-group-members").click();
     await expect(page.getByTestId("add-group-members-modal")).toBeVisible();
+    await expect(
+      page.getByRole("textbox", { name: "Search friends to add" }),
+    ).toBeVisible();
     await page.getByTestId(`addable-group-friend-${users.cara.id}`).click();
     await page.getByTestId("add-group-members-submit").click();
     await expect(page.getByTestId("add-group-members-modal")).toHaveCount(0);

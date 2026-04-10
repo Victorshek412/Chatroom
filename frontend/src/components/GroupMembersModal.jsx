@@ -483,112 +483,111 @@ function GroupMembersModal({
             </div>
           )}
         </div>
+        {actionMenu ? (
+          <div
+            className="fixed z-[60] w-[188px] rounded-[16px] p-[4px]"
+            style={{
+              left: actionMenu.left,
+              top: actionMenu.top,
+              background: "var(--ct-surface)",
+              border: "1px solid var(--ct-border)",
+              boxShadow: "var(--ct-card-shadow)",
+            }}
+            data-group-member-menu="true"
+          >
+            {(() => {
+              const member = members.find(
+                (entry) => normalizeId(entry._id) === actionMenu.memberId,
+              );
+
+              if (!member) {
+                return null;
+              }
+
+              const memberId = normalizeId(member._id);
+              const isSelf = memberId === normalizeId(currentUserId);
+              const isAdministrator =
+                String(member.role || "member").toLowerCase() === "admin";
+              const canPromote =
+                canManageMembers && !isSelf && !isAdministrator && Boolean(onPromoteMember);
+              const canDemote =
+                canManageMembers && !isSelf && isAdministrator && Boolean(onDemoteMember);
+              const canRemove =
+                canManageMembers && !isSelf && Boolean(onRemoveMember);
+
+              return (
+                <div className="space-y-1">
+                  {canPromote ? (
+                    <button
+                      type="button"
+                      className="flex h-[34px] w-full items-center rounded-[10px] px-3 text-left"
+                      style={{ color: "var(--ct-text2)" }}
+                      onClick={() => void runMemberMutation(member, onPromoteMember)}
+                      data-testid={`promote-group-member-${memberId}`}
+                    >
+                      <span
+                        className="whitespace-nowrap"
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: 450,
+                          letterSpacing: "-0.01em",
+                        }}
+                      >
+                        Make Administrator
+                      </span>
+                    </button>
+                  ) : null}
+
+                  {canDemote ? (
+                    <button
+                      type="button"
+                      className="flex h-[34px] w-full items-center rounded-[10px] px-3 text-left"
+                      style={{ color: "var(--ct-text2)" }}
+                      onClick={() => void runMemberMutation(member, onDemoteMember)}
+                      data-testid={`demote-group-member-${memberId}`}
+                    >
+                      <span
+                        className="whitespace-nowrap"
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: 450,
+                          letterSpacing: "-0.01em",
+                        }}
+                      >
+                        Make Member
+                      </span>
+                    </button>
+                  ) : null}
+
+                  {canRemove ? (
+                    <button
+                      type="button"
+                      className="flex h-[34px] w-full items-center rounded-[10px] px-3 text-left"
+                      style={{ color: "var(--ct-destructive)" }}
+                      onClick={() => {
+                        setActionMenu(null);
+                        onRemoveMember(member);
+                      }}
+                      data-testid={`remove-group-member-${memberId}`}
+                    >
+                      <span
+                        className="whitespace-nowrap"
+                        style={{
+                          fontSize: 12.5,
+                          fontWeight: 450,
+                          letterSpacing: "-0.01em",
+                        }}
+                      >
+                        Remove from group
+                      </span>
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })()}
+          </div>
+        ) : null}
       </div>
-
-      {actionMenu ? (
-        <div
-          className="fixed z-[60] w-[188px] rounded-[16px] p-[4px]"
-          style={{
-            left: actionMenu.left,
-            top: actionMenu.top,
-            background: "var(--ct-surface)",
-            border: "1px solid var(--ct-border)",
-            boxShadow: "var(--ct-card-shadow)",
-          }}
-          data-group-member-menu="true"
-        >
-          {(() => {
-            const member = members.find(
-              (entry) => normalizeId(entry._id) === actionMenu.memberId,
-            );
-
-            if (!member) {
-              return null;
-            }
-
-            const memberId = normalizeId(member._id);
-            const isSelf = memberId === normalizeId(currentUserId);
-            const isAdministrator =
-              String(member.role || "member").toLowerCase() === "admin";
-            const canPromote =
-              canManageMembers && !isSelf && !isAdministrator && Boolean(onPromoteMember);
-            const canDemote =
-              canManageMembers && !isSelf && isAdministrator && Boolean(onDemoteMember);
-            const canRemove =
-              canManageMembers && !isSelf && Boolean(onRemoveMember);
-
-            return (
-              <div className="space-y-1">
-                {canPromote ? (
-                  <button
-                    type="button"
-                    className="flex h-[34px] w-full items-center rounded-[10px] px-3 text-left"
-                    style={{ color: "var(--ct-text2)" }}
-                    onClick={() => void runMemberMutation(member, onPromoteMember)}
-                    data-testid={`promote-group-member-${memberId}`}
-                  >
-                    <span
-                      className="whitespace-nowrap"
-                      style={{
-                        fontSize: 12.5,
-                        fontWeight: 450,
-                        letterSpacing: "-0.01em",
-                      }}
-                    >
-                      Make Administrator
-                    </span>
-                  </button>
-                ) : null}
-
-                {canDemote ? (
-                  <button
-                    type="button"
-                    className="flex h-[34px] w-full items-center rounded-[10px] px-3 text-left"
-                    style={{ color: "var(--ct-text2)" }}
-                    onClick={() => void runMemberMutation(member, onDemoteMember)}
-                    data-testid={`demote-group-member-${memberId}`}
-                  >
-                    <span
-                      className="whitespace-nowrap"
-                      style={{
-                        fontSize: 12.5,
-                        fontWeight: 450,
-                        letterSpacing: "-0.01em",
-                      }}
-                    >
-                      Make Member
-                    </span>
-                  </button>
-                ) : null}
-
-                {canRemove ? (
-                  <button
-                    type="button"
-                    className="flex h-[34px] w-full items-center rounded-[10px] px-3 text-left"
-                    style={{ color: "var(--ct-destructive)" }}
-                    onClick={() => {
-                      setActionMenu(null);
-                      onRemoveMember(member);
-                    }}
-                    data-testid={`remove-group-member-${memberId}`}
-                  >
-                    <span
-                      className="whitespace-nowrap"
-                      style={{
-                        fontSize: 12.5,
-                        fontWeight: 450,
-                        letterSpacing: "-0.01em",
-                      }}
-                    >
-                      Remove from group
-                    </span>
-                  </button>
-                ) : null}
-              </div>
-            );
-          })()}
-        </div>
-      ) : null}
     </>
   );
 }

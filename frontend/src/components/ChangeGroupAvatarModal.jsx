@@ -2,6 +2,8 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { CameraIcon, UploadIcon, UsersIcon, XIcon } from "lucide-react";
 import useFocusTrap from "../hooks/useFocusTrap";
 
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
 const getInitials = (name = "") =>
   name
     .trim()
@@ -86,6 +88,12 @@ function ChangeGroupAvatarModal({ isOpen, group, onClose, onSave }) {
   const handleFileChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) {
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_BYTES) {
+      setError("Choose an image smaller than 5 MB.");
+      event.target.value = "";
       return;
     }
 

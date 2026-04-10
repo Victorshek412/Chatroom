@@ -1,4 +1,26 @@
+const escapeHtml = (value = "") =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const sanitizeUrl = (value = "") => {
+  try {
+    const parsedUrl = new URL(String(value));
+    return ["http:", "https:"].includes(parsedUrl.protocol)
+      ? parsedUrl.toString()
+      : "#";
+  } catch {
+    return "#";
+  }
+};
+
 export function createWelcomeEmailTemplate(name, clientURL) {
+  const safeName = escapeHtml(name);
+  const safeClientURL = sanitizeUrl(clientURL);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,7 +41,7 @@ export function createWelcomeEmailTemplate(name, clientURL) {
     </div>
 
     <div style="padding: 36px 40px 32px;">
-      <p style="font-size: 15px; font-weight: 600; color: #EBEBEB; margin: 0 0 6px; letter-spacing: -0.01em;">Hello ${name},</p>
+      <p style="font-size: 15px; font-weight: 600; color: #EBEBEB; margin: 0 0 6px; letter-spacing: -0.01em;">Hello ${safeName},</p>
       <p style="font-size: 13.5px; color: #909090; margin: 0 0 28px; line-height: 1.7;">
         We're excited to have you join Whisper. Connect with friends, family, and colleagues in real-time — privately and effortlessly.
       </p>
@@ -68,7 +90,7 @@ export function createWelcomeEmailTemplate(name, clientURL) {
       </div>
 
       <div style="text-align: center; margin-bottom: 28px;">
-        <a href="${clientURL}" style="display: inline-block; background-color: #E2E2E2; color: #111111; text-decoration: none; padding: 11px 36px; border-radius: 10px; font-size: 13px; font-weight: 600; letter-spacing: -0.01em;">Open Whisper</a>
+        <a href="${safeClientURL}" style="display: inline-block; background-color: #E2E2E2; color: #111111; text-decoration: none; padding: 11px 36px; border-radius: 10px; font-size: 13px; font-weight: 600; letter-spacing: -0.01em;">Open Whisper</a>
       </div>
 
       <div style="height: 1px; background-color: rgba(255,255,255,0.06); margin-bottom: 20px;"></div>

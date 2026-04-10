@@ -62,7 +62,12 @@ const ensureUserHasFriendId = async (user) => {
     }
   }
 
-  return User.findById(user._id);
+  const refreshedUser = await User.findById(user._id);
+  if (refreshedUser?.friendId) {
+    return refreshedUser;
+  }
+
+  throw new Error("Failed to assign Friend ID during login.");
 };
 
 export const signup = async (req, res) => {

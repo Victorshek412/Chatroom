@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { parseFriendId } from "../lib/friendIds.js";
 import {
   listAcceptedFriendsForUser,
@@ -26,6 +27,9 @@ const populateFriendRequest = (query) =>
   query
     .populate("senderId", FRIEND_USER_SELECT)
     .populate("receiverId", FRIEND_USER_SELECT);
+
+const isValidFriendRequestId = (requestId) =>
+  mongoose.isObjectIdOrHexString(requestId);
 
 const resolveFriendRequestTransitionError = async ({
   requestId,
@@ -57,6 +61,10 @@ const updatePendingFriendRequestStatus = async ({
   nextStatus,
   forbiddenMessage,
 }) => {
+  if (!isValidFriendRequestId(requestId)) {
+    return { error: { status: 404, message: "Friend request not found." } };
+  }
+
   const friendRequest = await populateFriendRequest(
     FriendRequest.findOneAndUpdate(
       {

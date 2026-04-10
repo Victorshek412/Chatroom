@@ -15,8 +15,15 @@ function ConfirmGroupActionModal({
 }) {
   const dialogRef = useRef(null);
   const confirmButtonRef = useRef(null);
-  const closeFromEffect = useEffectEvent(() => {
+  const handleClose = () => {
+    if (isSubmitting) {
+      return;
+    }
+
     onClose();
+  };
+  const closeFromEffect = useEffectEvent(() => {
+    handleClose();
   });
 
   useFocusTrap({
@@ -38,7 +45,7 @@ function ConfirmGroupActionModal({
       style={{ background: "rgba(14, 15, 19, 0.28)" }}
       onClick={(event) => {
         if (event.target === event.currentTarget) {
-          onClose();
+          handleClose();
         }
       }}
     >
@@ -81,7 +88,7 @@ function ConfirmGroupActionModal({
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded-full"
             style={{ color: "var(--ct-icon)" }}
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close group action dialog"
           >
             <XIcon size={15} />
@@ -109,7 +116,7 @@ function ConfirmGroupActionModal({
               color: "var(--ct-text2)",
               border: "1px solid var(--ct-border-light)",
             }}
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isSubmitting}
           >
             Cancel

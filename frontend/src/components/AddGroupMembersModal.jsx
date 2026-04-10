@@ -196,6 +196,7 @@ function AddGroupMembersModal({
               ref={searchInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              aria-label="Search friends to add"
               className="w-full bg-transparent text-[14px] outline-none"
               style={{ color: "var(--ct-text1)" }}
               placeholder="Search friends"
