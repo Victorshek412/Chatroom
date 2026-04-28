@@ -1,9 +1,12 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
+import { useAuthStore } from "./useAuthStore";
 
 const getErrorMessage = (error, fallbackMessage) =>
   error.response?.data?.message || fallbackMessage;
+
+const getComparableId = (value) => value?.toString?.() ?? value;
 
 const upsertFriend = (friends, nextFriend) => {
   if (!nextFriend?._id) {
@@ -23,6 +26,43 @@ const upsertFriend = (friends, nextFriend) => {
   return nextFriends;
 };
 
+const upsertFriendRequest = (requests, nextRequest) => {
+  if (!nextRequest?._id) {
+    return requests;
+  }
+
+  const nextRequestId = getComparableId(nextRequest._id);
+  const existingIndex = requests.findIndex(
+    (request) => getComparableId(request._id) === nextRequestId,
+  );
+
+  if (existingIndex === -1) {
+    return [nextRequest, ...requests];
+  }
+
+  const nextRequests = [...requests];
+  nextRequests[existingIndex] = nextRequest;
+  return nextRequests;
+};
+
+const removeFriendRequest = (requests, requestId) => {
+  const comparableRequestId = getComparableId(requestId);
+  return requests.filter(
+    (request) => getComparableId(request._id) !== comparableRequestId,
+  );
+};
+
+const getSocketRequestConfig = () => {
+  const socketId = useAuthStore.getState().socket?.id;
+  return socketId
+    ? {
+        headers: {
+          "x-socket-id": socketId,
+        },
+      }
+    : undefined;
+};
+
 export const useFriendStore = create((set, get) => ({
   friends: [],
   myFriendCard: null,
@@ -38,6 +78,7 @@ export const useFriendStore = create((set, get) => ({
   isSendingFriendRequest: false,
   isCancellingFriendRequest: false,
   isUpdatingFriendRequest: false,
+  friendRequestEventHandler: null,
 
   resetFriendState: () =>
     set({
@@ -55,6 +96,7 @@ export const useFriendStore = create((set, get) => ({
       isSendingFriendRequest: false,
       isCancellingFriendRequest: false,
       isUpdatingFriendRequest: false,
+      friendRequestEventHandler: null,
     }),
 
   clearFriendSearch: () =>
@@ -134,16 +176,15 @@ export const useFriendStore = create((set, get) => ({
     set({ isSendingFriendRequest: true });
 
     try {
-      const res = await axiosInstance.post("/friends/requests", { friendId });
+      const res = await axiosInstance.post(
+        "/friends/requests",
+        { friendId },
+        getSocketRequestConfig(),
+      );
       const nextRequest = res.data.request;
 
       set((state) => ({
-        outgoingRequests: [
-          nextRequest,
-          ...state.outgoingRequests.filter(
-            (request) => request._id !== nextRequest._id,
-          ),
-        ],
+        outgoingRequests: upsertFriendRequest(state.outgoingRequests, nextRequest),
       }));
 
       toast.success("Friend request sent");
@@ -160,12 +201,17 @@ export const useFriendStore = create((set, get) => ({
     set({ isCancellingFriendRequest: true });
 
     try {
-      const res = await axiosInstance.post(`/friends/requests/${requestId}/cancel`);
+      const res = await axiosInstance.post(
+        `/friends/requests/${requestId}/cancel`,
+        {},
+        getSocketRequestConfig(),
+      );
       const cancelledRequestId = res.data.request?._id || requestId;
 
       set((state) => ({
-        outgoingRequests: state.outgoingRequests.filter(
-          (request) => request._id !== cancelledRequestId,
+        outgoingRequests: removeFriendRequest(
+          state.outgoingRequests,
+          cancelledRequestId,
         ),
       }));
 
@@ -213,13 +259,15 @@ export const useFriendStore = create((set, get) => ({
     set({ isUpdatingFriendRequest: true });
 
     try {
-      const res = await axiosInstance.post(`/friends/requests/${requestId}/accept`);
+      const res = await axiosInstance.post(
+        `/friends/requests/${requestId}/accept`,
+        {},
+        getSocketRequestConfig(),
+      );
       const nextFriend = res.data.friend;
 
       set((state) => ({
-        incomingRequests: state.incomingRequests.filter(
-          (request) => request._id !== requestId,
-        ),
+        incomingRequests: removeFriendRequest(state.incomingRequests, requestId),
         friends: upsertFriend(state.friends, nextFriend),
       }));
 
@@ -237,11 +285,13 @@ export const useFriendStore = create((set, get) => ({
     set({ isUpdatingFriendRequest: true });
 
     try {
-      await axiosInstance.post(`/friends/requests/${requestId}/reject`);
+      await axiosInstance.post(
+        `/friends/requests/${requestId}/reject`,
+        {},
+        getSocketRequestConfig(),
+      );
       set((state) => ({
-        incomingRequests: state.incomingRequests.filter(
-          (request) => request._id !== requestId,
-        ),
+        incomingRequests: removeFriendRequest(state.incomingRequests, requestId),
       }));
 
       toast.success("Friend request rejected");
@@ -261,5 +311,69 @@ export const useFriendStore = create((set, get) => ({
       get().fetchOutgoingRequests(),
       get().fetchAcceptedFriends(),
     ]);
+  },
+
+  subscribeToFriendRequests: () => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket) {
+      return;
+    }
+
+    const existingHandler = get().friendRequestEventHandler;
+    if (existingHandler) {
+      socket.off("friendRequestEvent", existingHandler);
+    } else {
+      socket.off("friendRequestEvent");
+    }
+
+    const handleFriendRequestEvent = (event) => {
+      if (!event?.scope || !event?.action) {
+        return;
+      }
+
+      set((state) => {
+        const scopeKey =
+          event.scope === "outgoing" ? "outgoingRequests" : "incomingRequests";
+        const nextState = {};
+
+        if (event.action === "created" && event.request) {
+          nextState[scopeKey] = upsertFriendRequest(
+            state[scopeKey],
+            event.request,
+          );
+        }
+
+        if (
+          event.action === "accepted" ||
+          event.action === "rejected" ||
+          event.action === "cancelled"
+        ) {
+          nextState[scopeKey] = removeFriendRequest(
+            state[scopeKey],
+            event.requestId,
+          );
+        }
+
+        if (event.action === "accepted" && event.friend) {
+          nextState.friends = upsertFriend(state.friends, event.friend);
+        }
+
+        return nextState;
+      });
+    };
+
+    socket.on("friendRequestEvent", handleFriendRequestEvent);
+    set({ friendRequestEventHandler: handleFriendRequestEvent });
+  },
+
+  unsubscribeFromFriendRequests: () => {
+    const socket = useAuthStore.getState().socket;
+    const handler = get().friendRequestEventHandler;
+
+    if (socket && handler) {
+      socket.off("friendRequestEvent", handler);
+    }
+
+    set({ friendRequestEventHandler: null });
   },
 }));

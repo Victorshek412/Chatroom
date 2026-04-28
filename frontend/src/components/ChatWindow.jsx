@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import {
   CameraIcon,
+  CornerUpLeftIcon,
   FileTextIcon,
   FolderOpenIcon,
   ImageIcon,
@@ -11,6 +12,7 @@ import {
   MessageCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
+  PinIcon,
   SendIcon,
   Trash2Icon,
   UserPlusIcon,
@@ -53,6 +55,27 @@ const getSenderAvatarText = (message, fallbackInitials) => {
 
 const getSenderAvatarUrl = (message, fallbackUrl = "") =>
   message.senderAvatarUrl || fallbackUrl || "";
+
+const getMessageSnippet = (message) => {
+  if (!message) {
+    return "";
+  }
+
+  const trimmedText = typeof message.text === "string" ? message.text.trim() : "";
+  if (trimmedText) {
+    return trimmedText.length > 90
+      ? `${trimmedText.slice(0, 87)}...`
+      : trimmedText;
+  }
+
+  if (message.attachment?.originalName) {
+    return message.attachment.kind === "image"
+      ? `Photo - ${message.attachment.originalName}`
+      : message.attachment.originalName;
+  }
+
+  return "Attachment";
+};
 
 function Avatar({ initials, src = "", alt = "Avatar", size = 28 }) {
   if (src) {
@@ -387,6 +410,140 @@ function HeaderMenu({
   );
 }
 
+function MessageActionMenu({
+  message,
+  isOwnMessage,
+  onReply,
+  onTogglePin,
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const runAction = async (callback) => {
+    if (typeof callback === "function") {
+      await callback(message);
+    }
+
+    window.setTimeout(() => {
+      setIsOpen(false);
+    }, 0);
+  };
+
+  const menuItems = [
+    {
+      label: "Reply",
+      icon: <CornerUpLeftIcon size={13} strokeWidth={2} />,
+      onClick: onReply,
+      testId: `reply-message-${message.id}`,
+    },
+    {
+      label: message.isPinned ? "Unpin" : "Pin",
+      icon: <PinIcon size={13} strokeWidth={2} />,
+      onClick: onTogglePin,
+      testId: `pin-message-${message.id}`,
+    },
+  ];
+
+  return (
+    <div className="relative shrink-0 self-start" ref={menuRef}>
+      <button
+        type="button"
+        className="rounded-lg p-1.5 opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+        style={{
+          color: isOpen || isHovered ? "var(--ct-text2)" : "var(--ct-icon-cw)",
+          background: isOpen || isHovered ? "var(--ct-icon-hover)" : "transparent",
+          opacity: isOpen ? 1 : undefined,
+          visibility: isOpen ? "visible" : undefined,
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={() => setIsOpen((current) => !current)}
+        data-testid={`message-actions-trigger-${message.id}`}
+        aria-label="Message actions"
+      >
+        <MoreHorizontalIcon size={15} strokeWidth={1.9} />
+      </button>
+
+      {isOpen ? (
+        <div
+          className={`absolute top-0 z-30 min-w-[148px] rounded-[14px] p-[3px] ${
+            isOwnMessage
+              ? "right-[calc(100%+8px)]"
+              : "left-[calc(100%+8px)]"
+          }`}
+          style={{
+            background: "var(--ct-surface)",
+            border: "1px solid var(--ct-border)",
+            boxShadow: "var(--ct-card-shadow)",
+          }}
+          data-testid={`message-actions-menu-${message.id}`}
+        >
+          {menuItems.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="flex h-[33px] w-full items-center gap-[9px] rounded-[8px] px-[11px] text-left"
+              style={{
+                color: "var(--ct-text2)",
+                transition: "background 100ms ease, color 100ms ease",
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.background = "var(--ct-hover-bg)";
+                event.currentTarget.style.color = "var(--ct-text1)";
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.background = "transparent";
+                event.currentTarget.style.color = "var(--ct-text2)";
+              }}
+              onClick={() => void runAction(item.onClick)}
+              data-testid={item.testId}
+            >
+              <span className="shrink-0">{item.icon}</span>
+              <span
+                className="flex-1 whitespace-nowrap"
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: 450,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {item.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PendingAttachment({ attachment, isUploading, onRemove }) {
   if (!attachment && !isUploading) {
     return null;
@@ -460,6 +617,8 @@ function Composer({
   onSendMessage,
   onUploadAttachment,
   isSoundEnabled,
+  replyToMessage,
+  onCancelReply,
 }) {
   const [text, setText] = useState("");
   const [pendingAttachment, setPendingAttachment] = useState(null);
@@ -467,6 +626,7 @@ function Composer({
   const [isFocused, setIsFocused] = useState(false);
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const textInputRef = useRef(null);
   const skipNextPendingCleanupRef = useRef(false);
   const { playRandomKeyStrokeSound } = useKeyboardSound();
   const canSend = Boolean(text.trim() || pendingAttachment);
@@ -497,6 +657,12 @@ function Composer({
       fileInputRef.current.value = "";
     }
   }, [conversation?.id]);
+
+  useEffect(() => {
+    if (replyToMessage) {
+      textInputRef.current?.focus();
+    }
+  }, [replyToMessage]);
 
   const resetInputs = () => {
     if (imageInputRef.current) {
@@ -560,6 +726,8 @@ function Composer({
       didSend = await onSendMessage({
         text: text.trim(),
         attachment: pendingAttachment,
+        replyToMessageId: replyToMessage?.id || null,
+        replyTo: replyToMessage || null,
       });
     } catch (error) {
       toast.error(error.message || "Failed to send message.");
@@ -598,6 +766,46 @@ function Composer({
             boxShadow: "var(--ct-field-shadow)",
           }}
         >
+          {replyToMessage ? (
+            <div
+              className="flex items-start gap-2 border-b px-3 py-2.5"
+              style={{ borderColor: "var(--ct-border-light)" }}
+              data-testid="reply-preview"
+            >
+              <div
+                className="mt-0.5 h-8 w-[3px] shrink-0 rounded-full"
+                style={{ background: "var(--ct-accent)" }}
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  className="truncate"
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: "var(--ct-text1)",
+                  }}
+                >
+                  Replying to {replyToMessage.senderName}
+                </p>
+                <p
+                  className="mt-0.5 truncate text-[10.5px]"
+                  style={{ color: "var(--ct-text2)" }}
+                >
+                  {getMessageSnippet(replyToMessage)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px]"
+                style={{ color: "var(--ct-text3)" }}
+                onClick={onCancelReply}
+                data-testid="cancel-reply"
+              >
+                <XIcon size={11} strokeWidth={2.2} />
+              </button>
+            </div>
+          ) : null}
+
           <PendingAttachment
             attachment={pendingAttachment}
             isUploading={isUploadingAttachment}
@@ -659,6 +867,7 @@ function Composer({
             </button>
 
             <input
+              ref={textInputRef}
               value={text}
               onChange={(event) => {
                 setText(event.target.value);
@@ -763,6 +972,7 @@ function ChatWindow({
   conversation,
   currentUser,
   onSendMessage,
+  onTogglePinMessage,
   onUploadAttachment,
   onCloseConversation,
   onOpenAddContact,
@@ -778,6 +988,8 @@ function ChatWindow({
   requestCount,
 }) {
   const scrollerRef = useRef(null);
+  const messageRefs = useRef(new Map());
+  const [replyToMessageId, setReplyToMessageId] = useState(null);
   const messageCount = conversation?.messages?.length ?? 0;
   const lastMessage = messageCount > 0
     ? conversation.messages[messageCount - 1]
@@ -802,6 +1014,38 @@ function ChatWindow({
       : headerStatusTone === "away"
         ? "var(--ct-status-amber)"
         : "var(--ct-text3)";
+  const pinnedMessages = conversation?.messages
+    ? [...conversation.messages]
+      .filter((message) => message.isPinned)
+      .sort(
+        (firstMessage, secondMessage) =>
+          new Date(secondMessage.pinnedAt || 0).getTime() -
+          new Date(firstMessage.pinnedAt || 0).getTime(),
+      )
+    : [];
+  const primaryPinnedMessage = pinnedMessages[0] || null;
+  const replyToMessage = replyToMessageId && conversation
+    ? conversation.messages.find(
+      (message) => String(message.id) === String(replyToMessageId),
+    ) || null
+    : null;
+
+  const scrollMessageIntoView = (messageId) => {
+    const targetNode = messageRefs.current.get(String(messageId));
+    targetNode?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  };
+
+  const handleSendMessage = async (payload) => {
+    const didSend = await onSendMessage(payload);
+    if (didSend) {
+      setReplyToMessageId(null);
+    }
+
+    return didSend;
+  };
 
   return (
     <section
@@ -874,146 +1118,249 @@ function ChatWindow({
 
       {conversation ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          {conversation.isLoading ? (
-              <div className="flex h-full items-center justify-center">
-                <LoaderCircleIcon
-                  className="animate-spin"
-                  size={22}
-                  style={{ color: "var(--ct-text3)" }}
-                />
-              </div>
-            ) : conversation.messages.length === 0 ? (
-              <EmptyState conversation={conversation} />
-            ) : (
-              <div
-                ref={scrollerRef}
-                className="hidden-scrollbar flex-1 overflow-y-auto px-8 py-6"
-                style={{
-                  background: "var(--ct-chat-bg)",
-                  scrollbarWidth: "thin",
-                  scrollbarColor: "var(--ct-scrollbar) transparent",
-                }}
-                data-testid="message-list"
+          {primaryPinnedMessage ? (
+            <div
+              className="shrink-0 border-b px-5 py-2.5"
+              style={{
+                borderColor: "var(--ct-border-light)",
+                background: "var(--ct-pin-bg)",
+              }}
+            >
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 text-left"
+                style={{ color: "var(--ct-pin-accent)" }}
+                onClick={() => scrollMessageIntoView(primaryPinnedMessage.id)}
+                data-testid="pinned-message-banner"
               >
-                {conversation.messages.map((message, index) => {
-                  const isOwnMessage =
-                    String(message.senderId) === String(currentUser.id);
-                  const previousMessage = conversation.messages[index - 1];
-                  const nextMessage = conversation.messages[index + 1];
-                  const isFirstInGroup =
-                    !previousMessage ||
-                    String(previousMessage.senderId) !== String(message.senderId);
-                  const isLastInGroup =
-                    !nextMessage ||
-                    String(nextMessage.senderId) !== String(message.senderId);
-                  const senderLabel = message.senderName || conversation.title;
-                  const senderAvatarText = getSenderAvatarText(
-                    message,
-                    conversation.avatarText,
-                  );
-                  const senderAvatarUrl = getSenderAvatarUrl(
-                    message,
-                    !isOwnMessage && conversation.kind === "direct"
-                      ? conversation.avatarUrl
-                      : "",
-                  );
+                <PinIcon size={13} strokeWidth={1.9} />
+                <span
+                  className="shrink-0 text-[11px] font-semibold"
+                  style={{ letterSpacing: "-0.01em" }}
+                >
+                  Pinned
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[11px]">
+                  {getMessageSnippet(primaryPinnedMessage)}
+                </span>
+                {pinnedMessages.length > 1 ? (
+                  <span className="shrink-0 text-[10px]">
+                    +{pinnedMessages.length - 1}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          ) : null}
 
-                  return (
+          {conversation.isLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <LoaderCircleIcon
+                className="animate-spin"
+                size={22}
+                style={{ color: "var(--ct-text3)" }}
+              />
+            </div>
+          ) : conversation.messages.length === 0 ? (
+            <EmptyState conversation={conversation} />
+          ) : (
+            <div
+              ref={scrollerRef}
+              className="hidden-scrollbar flex-1 overflow-y-auto px-8 py-6"
+              style={{
+                background: "var(--ct-chat-bg)",
+                scrollbarWidth: "thin",
+                scrollbarColor: "var(--ct-scrollbar) transparent",
+              }}
+              data-testid="message-list"
+            >
+              {conversation.messages.map((message, index) => {
+                const isOwnMessage =
+                  String(message.senderId) === String(currentUser.id);
+                const previousMessage = conversation.messages[index - 1];
+                const nextMessage = conversation.messages[index + 1];
+                const isFirstInGroup =
+                  !previousMessage ||
+                  String(previousMessage.senderId) !== String(message.senderId);
+                const isLastInGroup =
+                  !nextMessage ||
+                  String(nextMessage.senderId) !== String(message.senderId);
+                const senderLabel = message.senderName || conversation.title;
+                const senderAvatarText = getSenderAvatarText(
+                  message,
+                  conversation.avatarText,
+                );
+                const senderAvatarUrl = getSenderAvatarUrl(
+                  message,
+                  !isOwnMessage && conversation.kind === "direct"
+                    ? conversation.avatarUrl
+                    : "",
+                );
+                const hasMessageText = Boolean(message.text);
+                const hasReplyPreview = Boolean(message.replyTo);
+
+                return (
+                  <div
+                    key={message.id}
+                    ref={(node) => {
+                      if (node) {
+                        messageRefs.current.set(String(message.id), node);
+                      } else {
+                        messageRefs.current.delete(String(message.id));
+                      }
+                    }}
+                    style={{ marginTop: index === 0 ? 0 : isFirstInGroup ? 12 : 6 }}
+                  >
                     <div
-                      key={message.id}
-                      style={{ marginTop: index === 0 ? 0 : isFirstInGroup ? 12 : 6 }}
+                      className={`group flex items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
                     >
+                      {!isOwnMessage ? (
+                        <div className="w-7 shrink-0">
+                          {isFirstInGroup ? (
+                            <Avatar
+                              initials={senderAvatarText}
+                              src={senderAvatarUrl}
+                              alt={senderLabel}
+                              size={27}
+                            />
+                          ) : (
+                            <div style={{ width: 27 }} />
+                          )}
+                        </div>
+                      ) : null}
+
+                      {isOwnMessage ? (
+                        <MessageActionMenu
+                          message={message}
+                          isOwnMessage={isOwnMessage}
+                          onReply={(targetMessage) => setReplyToMessageId(targetMessage.id)}
+                          onTogglePin={onTogglePinMessage}
+                        />
+                      ) : null}
+
                       <div
-                        className={`flex items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
+                        className={`flex min-w-0 max-w-[58%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
                       >
-                          {!isOwnMessage ? (
-                          <div className="w-7 shrink-0">
-                            {isFirstInGroup ? (
-                              <Avatar
-                                initials={senderAvatarText}
-                                src={senderAvatarUrl}
-                                alt={senderLabel}
-                                size={27}
-                              />
-                            ) : (
-                              <div style={{ width: 27 }} />
-                            )}
+                        {isFirstInGroup && !isOwnMessage ? (
+                          <span
+                            className="mb-1 px-1 text-[10px] font-medium"
+                            style={{ color: "var(--ct-text3)" }}
+                          >
+                            {senderLabel}
+                          </span>
+                        ) : null}
+
+                        {message.isPinned ? (
+                          <span
+                            className="mb-1 inline-flex items-center gap-1 px-1 text-[10px] font-medium"
+                            style={{ color: "var(--ct-pin-accent)" }}
+                          >
+                            <PinIcon size={10} strokeWidth={2} />
+                            Pinned
+                          </span>
+                        ) : null}
+
+                        {message.attachment ? (
+                          <div
+                            className={hasMessageText ? "mb-2" : ""}
+                            style={{ width: "fit-content", maxWidth: "100%" }}
+                          >
+                            <MessageAttachment
+                              attachment={message.attachment}
+                              isOwnMessage={isOwnMessage}
+                            />
                           </div>
                         ) : null}
 
-                        <div
-                          className={`flex min-w-0 max-w-[58%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
-                        >
-                          {isFirstInGroup && !isOwnMessage ? (
-                            <span
-                              className="mb-1 px-1 text-[10px] font-medium"
-                              style={{ color: "var(--ct-text3)" }}
-                            >
-                              {senderLabel}
-                            </span>
-                          ) : null}
+                        {hasMessageText || hasReplyPreview ? (
+                          <div
+                            className="min-w-[48px] max-w-full rounded-[18px] px-[14px] py-[9px]"
+                            style={{
+                              width: "fit-content",
+                              maxWidth: "100%",
+                              background: "var(--ct-bubble-bg)",
+                              color: "var(--ct-bubble-text)",
+                            }}
+                          >
+                            {hasReplyPreview ? (
+                              <button
+                                type="button"
+                                className={hasMessageText ? "mb-2 block w-full text-left" : "block w-full text-left"}
+                                style={{
+                                  maxWidth: "100%",
+                                  borderLeft: "2px solid var(--ct-accent)",
+                                  paddingLeft: 10,
+                                  color: "var(--ct-bubble-text)",
+                                }}
+                                onClick={() => scrollMessageIntoView(message.replyTo.id)}
+                                data-testid={`reply-context-${message.id}`}
+                              >
+                                <p
+                                  className="truncate text-[10.5px] font-semibold"
+                                  style={{ opacity: 0.96 }}
+                                >
+                                  {message.replyTo.senderName}
+                                </p>
+                                <p
+                                  className="mt-0.5 truncate text-[10.5px]"
+                                  style={{ opacity: 0.72 }}
+                                >
+                                  {getMessageSnippet(message.replyTo)}
+                                </p>
+                              </button>
+                            ) : null}
 
-                          {message.attachment ? (
-                            <div
-                              className={message.text ? "mb-2" : ""}
-                              style={{ width: "fit-content", maxWidth: "100%" }}
-                            >
-                              <MessageAttachment
-                                attachment={message.attachment}
-                                isOwnMessage={isOwnMessage}
-                              />
-                            </div>
-                          ) : null}
-
-                          {message.text ? (
-                            <div
-                              className="min-w-[48px] max-w-full rounded-[18px] px-[14px] py-[9px]"
+                            {hasMessageText ? (
+                            <p
+                              className="text-[14px]"
                               style={{
-                                width: "fit-content",
-                                maxWidth: "100%",
-                                background: "var(--ct-bubble-bg)",
-                                color: "var(--ct-bubble-text)",
+                                lineHeight: 1.45,
+                                overflowWrap: "anywhere",
+                                wordBreak: "break-word",
                               }}
                             >
-                              <p
-                                className="text-[14px]"
-                                style={{
-                                  lineHeight: 1.45,
-                                  overflowWrap: "anywhere",
-                                  wordBreak: "break-word",
-                                }}
-                              >
-                                {message.text}
-                              </p>
-                            </div>
-                          ) : null}
+                              {message.text}
+                            </p>
+                            ) : null}
+                          </div>
+                        ) : null}
 
-                          {isLastInGroup ? (
-                            <div
-                              className={`mt-1 flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
-                              style={{ width: "100%" }}
+                        {isLastInGroup ? (
+                          <div
+                            className={`mt-1 flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
+                            style={{ width: "100%" }}
+                          >
+                            <span
+                              className="px-1 text-[10px]"
+                              style={{ color: "var(--ct-text3)" }}
                             >
-                              <span
-                                className="px-1 text-[10px]"
-                                style={{ color: "var(--ct-text3)" }}
-                              >
-                                {formatMessageTime(message.createdAt)}
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
+                              {formatMessageTime(message.createdAt)}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
+
+                      {!isOwnMessage ? (
+                        <MessageActionMenu
+                          message={message}
+                          isOwnMessage={isOwnMessage}
+                          onReply={(targetMessage) => setReplyToMessageId(targetMessage.id)}
+                          onTogglePin={onTogglePinMessage}
+                        />
+                      ) : null}
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <Composer
             conversation={conversation}
-            onSendMessage={onSendMessage}
+            onSendMessage={handleSendMessage}
             onUploadAttachment={onUploadAttachment}
             isSoundEnabled={conversation.isSoundEnabled}
+            replyToMessage={replyToMessage}
+            onCancelReply={() => setReplyToMessageId(null)}
           />
         </div>
       ) : (

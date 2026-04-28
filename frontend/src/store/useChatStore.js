@@ -309,6 +309,7 @@ export const useChatStore = create((set, get) => ({
         messageData.image ||
         (primaryAttachment?.kind === "image" ? primaryAttachment.url : null),
       attachments: attachments.length > 0 ? attachments : undefined,
+      replyTo: messageData.replyTo || null,
       createdAt: new Date().toISOString(),
       isOptimistic: true, // flag to identify optimistic messages (optional)
     };
@@ -322,6 +323,7 @@ export const useChatStore = create((set, get) => ({
           text: messageData.text,
           ...(messageData.image ? { image: messageData.image } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(messageData.replyToMessageId ? { replyToMessageId: messageData.replyToMessageId } : {}),
         },
         {
           headers: socket?.id ? { "x-socket-id": socket.id } : {},
@@ -355,11 +357,35 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  toggleMessagePin: async (messageId) => {
+    const { socket } = useAuthStore.getState();
+
+    try {
+      const res = await axiosInstance.patch(
+        `/messages/message/${messageId}/pin`,
+        {},
+        {
+          headers: socket?.id ? { "x-socket-id": socket.id } : {},
+        },
+      );
+
+      set((state) => ({
+        messages: upsertMessage(state.messages, res.data),
+      }));
+
+      return res.data;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to update pin"));
+      return null;
+    }
+  },
+
   subscribeToMessages: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
 
     socket.off("newMessage");
+    socket.off("messageUpdated");
     socket.on("newMessage", (newMessage) => {
       // Re-read fresh state on each event
       const { selectedUser, isSoundEnabled } = get();
@@ -420,11 +446,40 @@ export const useChatStore = create((set, get) => ({
         void playSoundEffect("notification");
       }
     });
+
+    socket.on("messageUpdated", (updatedMessage) => {
+      const { selectedUser } = get();
+      const { authUser } = useAuthStore.getState();
+
+      if (!authUser || !selectedUser) {
+        return;
+      }
+
+      const selectedUserId = getComparableId(selectedUser?._id);
+      const authUserId = getComparableId(authUser._id);
+      const senderId = getComparableId(updatedMessage.senderId);
+      const receiverId = getComparableId(updatedMessage.receiverId);
+      const isCurrentConversationMessage =
+        Boolean(selectedUserId) &&
+        (
+          (senderId === selectedUserId && receiverId === authUserId) ||
+          (senderId === authUserId && receiverId === selectedUserId)
+        );
+
+      if (!isCurrentConversationMessage) {
+        return;
+      }
+
+      set((state) => ({
+        messages: upsertMessage(state.messages, updatedMessage),
+      }));
+    });
   },
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
     socket.off("newMessage");
+    socket.off("messageUpdated");
   },
 }));

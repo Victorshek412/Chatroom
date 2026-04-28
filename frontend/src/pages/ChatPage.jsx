@@ -55,6 +55,53 @@ const getInitials = (name = "") =>
 
 const getAvatarUrl = (user) => user?.profilePicture || user?.avatarUrl || "";
 
+const buildRenderedReplyMessage = (message, resolveSenderName, resolveSenderAvatarUrl) => {
+  if (!message) {
+    return null;
+  }
+
+  const senderId = normalizeId(message.senderId);
+  const senderName = resolveSenderName(senderId);
+
+  return {
+    id: normalizeId(message._id ?? message.id),
+    senderId,
+    senderName,
+    senderAvatarText: getInitials(senderName),
+    senderAvatarUrl: resolveSenderAvatarUrl(senderId),
+    text: message.text || "",
+    createdAt: message.createdAt,
+    attachment: getUnifiedAttachment(message),
+  };
+};
+
+const buildRenderedConversationMessage = (
+  message,
+  resolveSenderName,
+  resolveSenderAvatarUrl,
+) => {
+  const senderId = normalizeId(message.senderId);
+  const senderName = resolveSenderName(senderId);
+
+  return {
+    id: normalizeId(message._id ?? message.id),
+    senderId,
+    senderName,
+    senderAvatarText: getInitials(senderName),
+    senderAvatarUrl: resolveSenderAvatarUrl(senderId),
+    text: message.text || "",
+    createdAt: message.createdAt,
+    attachment: getUnifiedAttachment(message),
+    replyTo: buildRenderedReplyMessage(
+      message.replyTo,
+      resolveSenderName,
+      resolveSenderAvatarUrl,
+    ),
+    isPinned: Boolean(message.isPinned || message.pinnedAt),
+    pinnedAt: message.pinnedAt || null,
+  };
+};
+
 const getActivityTimestamp = (value) =>
   new Date(value || 0).getTime();
 
@@ -183,6 +230,7 @@ function ChatPage() {
     sendMessage,
     setSelectedUser,
     subscribeToMessages,
+    toggleMessagePin,
     toggleSound,
     unsubscribeFromMessages,
     uploadMessageAttachment,
@@ -194,6 +242,8 @@ function ChatPage() {
     fetchAcceptedFriends,
     fetchIncomingRequests,
     fetchOutgoingRequests,
+    subscribeToFriendRequests,
+    unsubscribeFromFriendRequests,
   } = useFriendStore();
 
   const [selectedGroupId, setSelectedGroupId] = useState(null);
@@ -379,6 +429,22 @@ function ChatPage() {
       return undefined;
     }
 
+    subscribeToFriendRequests();
+
+    return () => {
+      unsubscribeFromFriendRequests();
+    };
+  }, [
+    socket,
+    subscribeToFriendRequests,
+    unsubscribeFromFriendRequests,
+  ]);
+
+  useEffect(() => {
+    if (!socket) {
+      return undefined;
+    }
+
     const handleGroupCreated = (group) => {
       setGroups((current) => upsertGroup(current, group));
     };
@@ -443,16 +509,26 @@ function ChatPage() {
       }
     };
 
+    const handleGroupMessageUpdated = ({ groupId, message }) => {
+      if (normalizeId(groupId) !== normalizeId(selectedGroupId)) {
+        return;
+      }
+
+      setGroupMessages((current) => upsertConversationMessage(current, message));
+    };
+
     socket.on("groupCreated", handleGroupCreated);
     socket.on("groupUpdated", handleGroupUpdated);
     socket.on("groupRemoved", handleGroupRemoved);
     socket.on("groupMessage", handleGroupMessage);
+    socket.on("groupMessageUpdated", handleGroupMessageUpdated);
 
     return () => {
       socket.off("groupCreated", handleGroupCreated);
       socket.off("groupUpdated", handleGroupUpdated);
       socket.off("groupRemoved", handleGroupRemoved);
       socket.off("groupMessage", handleGroupMessage);
+      socket.off("groupMessageUpdated", handleGroupMessageUpdated);
     };
   }, [authUser?._id, closeGroupManagementOverlays, selectedGroupId, socket]);
 
@@ -498,24 +574,18 @@ function ChatPage() {
       return [];
     }
 
-    return messages.map((message) => {
-      const senderId = normalizeId(message.senderId);
-      const isOwnMessage = senderId === normalizeId(authUser._id);
+    const authUserId = normalizeId(authUser._id);
+    const resolveSenderName = (senderId) =>
+      senderId === authUserId ? authUser.fullName : selectedUser.fullName;
+    const resolveSenderAvatarUrl = (senderId) =>
+      senderId === authUserId ? getAvatarUrl(authUser) : getAvatarUrl(selectedUser);
 
-      return {
-        id: normalizeId(message._id),
-        senderId,
-        senderName: isOwnMessage ? authUser.fullName : selectedUser.fullName,
-        senderAvatarText: getInitials(
-          isOwnMessage ? authUser.fullName : selectedUser.fullName,
-        ),
-        senderAvatarUrl: isOwnMessage
-          ? getAvatarUrl(authUser)
-          : getAvatarUrl(selectedUser),
-        text: message.text || "",
-        createdAt: message.createdAt,
-        attachment: getUnifiedAttachment(message),
-      };
+    return messages.map((message) => {
+      return buildRenderedConversationMessage(
+        message,
+        resolveSenderName,
+        resolveSenderAvatarUrl,
+      );
     });
   }, [authUser, messages, selectedUser]);
 
@@ -531,22 +601,21 @@ function ChatPage() {
         member,
       ]),
     );
+    const resolveSenderName = (senderId) => {
+      const sender = senderId === authUserId ? authUser : membersById.get(senderId);
+      return sender?.fullName || selectedGroup.name;
+    };
+    const resolveSenderAvatarUrl = (senderId) => {
+      const sender = senderId === authUserId ? authUser : membersById.get(senderId);
+      return getAvatarUrl(sender);
+    };
 
     return groupMessages.map((message) => {
-      const senderId = normalizeId(message.senderId);
-      const sender = senderId === authUserId ? authUser : membersById.get(senderId);
-      const senderName = sender?.fullName || selectedGroup.name;
-
-      return {
-        id: normalizeId(message._id),
-        senderId,
-        senderName,
-        senderAvatarText: getInitials(senderName),
-        senderAvatarUrl: getAvatarUrl(sender),
-        text: message.text || "",
-        createdAt: message.createdAt,
-        attachment: getUnifiedAttachment(message),
-      };
+      return buildRenderedConversationMessage(
+        message,
+        resolveSenderName,
+        resolveSenderAvatarUrl,
+      );
     });
   }, [authUser, groupMessages, selectedGroup]);
 
@@ -688,7 +757,12 @@ function ChatPage() {
     selectedUser,
   ]);
 
-  const handleSendConversationMessage = async ({ text, attachment }) => {
+  const handleSendConversationMessage = async ({
+    text,
+    attachment,
+    replyToMessageId,
+    replyTo,
+  }) => {
     if (selectedGroup) {
       try {
         const res = await axiosInstance.post(
@@ -696,6 +770,7 @@ function ChatPage() {
           {
             text,
             ...(attachment ? { attachments: [attachment] } : {}),
+            ...(replyToMessageId ? { replyToMessageId } : {}),
           },
           {
             headers: socket?.id ? { "x-socket-id": socket.id } : {},
@@ -716,9 +791,37 @@ function ChatPage() {
     const sentMessage = await sendMessage({
       text,
       attachments: attachment ? [attachment] : [],
+      replyToMessageId,
+      replyTo,
     });
 
     return Boolean(sentMessage);
+  };
+
+  const handleTogglePinMessage = async (message) => {
+    if (!message?.id) {
+      return null;
+    }
+
+    if (selectedGroup) {
+      try {
+        const res = await axiosInstance.patch(
+          `/messages/message/${message.id}/pin`,
+          {},
+          {
+            headers: socket?.id ? { "x-socket-id": socket.id } : {},
+          },
+        );
+
+        setGroupMessages((current) => upsertConversationMessage(current, res.data));
+        return res.data;
+      } catch (error) {
+        toast.error(error.response?.data?.message || "Failed to update pin");
+        return null;
+      }
+    }
+
+    return toggleMessagePin(message.id);
   };
 
   const handleUploadAttachment = async (file) => uploadMessageAttachment(file);
@@ -1058,6 +1161,7 @@ function ChatPage() {
             conversation={selectedConversation}
             currentUser={{ id: normalizeId(authUser._id), fullName: authUser.fullName }}
             onSendMessage={handleSendConversationMessage}
+            onTogglePinMessage={handleTogglePinMessage}
             onUploadAttachment={handleUploadAttachment}
             onCloseConversation={closeActiveConversation}
             onOpenAddContact={() => setIsAddContactModalOpen(true)}

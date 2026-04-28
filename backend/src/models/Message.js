@@ -57,6 +57,11 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
       ref: "Group",
       default: null,
     },
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
+    },
     text: {
       type: String,
       trim: true,
@@ -72,6 +77,15 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
         validator: (attachments) => !attachments || attachments.length <= 1,
         message: "Only one attachment is allowed per message.",
       },
+    },
+    pinnedAt: {
+      type: Date,
+      default: null,
+    },
+    pinnedById: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
   },
   { timestamps: true },

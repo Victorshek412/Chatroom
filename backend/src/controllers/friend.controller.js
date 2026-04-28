@@ -5,12 +5,24 @@ import {
   serializeFriendRequest,
   serializeFriendUser,
 } from "../lib/friendships.js";
+import { getReceiverSocketIds, io } from "../lib/socket.js";
 import FriendRequest, { FRIEND_REQUEST_STATUS } from "../models/FriendRequest.js";
 import User from "../models/User.js";
 
 const FRIEND_USER_SELECT = "fullName profilePicture friendId";
+const FRIEND_REQUEST_EVENT = "friendRequestEvent";
 
 const getFormattedFriendId = (value) => parseFriendId(value);
+
+const toComparableId = (value) => value?.toString?.() ?? String(value ?? "");
+
+const emitFriendRequestEvent = (userId, payload, skipSocketId = null) => {
+  getReceiverSocketIds(userId)
+    .filter((socketId) => socketId !== skipSocketId)
+    .forEach((socketId) => {
+      io.to(socketId).emit(FRIEND_REQUEST_EVENT, payload);
+    });
+};
 
 const findRelevantRelationship = (currentUserId, otherUserId) =>
   FriendRequest.findOne({
@@ -133,6 +145,7 @@ export const findUserByFriendId = async (req, res) => {
 export const sendFriendRequest = async (req, res) => {
   try {
     const formattedFriendId = getFormattedFriendId(req.body?.friendId);
+    const senderSocketIdToSkip = req.headers["x-socket-id"];
 
     if (!formattedFriendId) {
       return res.status(400).json({ message: "Enter a valid Friend ID." });
@@ -179,9 +192,8 @@ export const sendFriendRequest = async (req, res) => {
         receiverId: receiver._id,
       });
 
-      populatedRequest = await FriendRequest.findById(friendRequest._id).populate(
-        "receiverId",
-        FRIEND_USER_SELECT,
+      populatedRequest = await populateFriendRequest(
+        FriendRequest.findById(friendRequest._id),
       );
     } catch (error) {
       if (error?.code !== 11000) {
@@ -210,6 +222,21 @@ export const sendFriendRequest = async (req, res) => {
 
       throw error;
     }
+
+    emitFriendRequestEvent(receiver._id, {
+      scope: "incoming",
+      action: "created",
+      request: serializeFriendRequest(populatedRequest, "senderId"),
+    });
+    emitFriendRequestEvent(
+      req.user._id,
+      {
+        scope: "outgoing",
+        action: "created",
+        request: serializeFriendRequest(populatedRequest, "receiverId"),
+      },
+      senderSocketIdToSkip,
+    );
 
     res.status(201).json({
       request: serializeFriendRequest(populatedRequest, "receiverId"),
@@ -262,6 +289,7 @@ export const listOutgoingFriendRequests = async (req, res) => {
 
 export const acceptFriendRequest = async (req, res) => {
   try {
+    const receiverSocketIdToSkip = req.headers["x-socket-id"];
     const { friendRequest, error } = await updatePendingFriendRequestStatus({
       requestId: req.params.requestId,
       actorId: req.user._id,
@@ -273,6 +301,30 @@ export const acceptFriendRequest = async (req, res) => {
     if (error) {
       return res.status(error.status).json({ message: error.message });
     }
+
+    const senderId = toComparableId(friendRequest.senderId?._id ?? friendRequest.senderId);
+    const receiverId = toComparableId(
+      friendRequest.receiverId?._id ?? friendRequest.receiverId,
+    );
+    const senderAsFriend = serializeFriendUser(friendRequest.senderId);
+    const receiverAsFriend = serializeFriendUser(friendRequest.receiverId);
+
+    emitFriendRequestEvent(
+      receiverId,
+      {
+        scope: "incoming",
+        action: "accepted",
+        requestId: toComparableId(friendRequest._id),
+        friend: senderAsFriend,
+      },
+      receiverSocketIdToSkip,
+    );
+    emitFriendRequestEvent(senderId, {
+      scope: "outgoing",
+      action: "accepted",
+      requestId: toComparableId(friendRequest._id),
+      friend: receiverAsFriend,
+    });
 
     res.status(200).json({
       request: serializeFriendRequest(friendRequest, "senderId"),
@@ -286,6 +338,7 @@ export const acceptFriendRequest = async (req, res) => {
 
 export const rejectFriendRequest = async (req, res) => {
   try {
+    const receiverSocketIdToSkip = req.headers["x-socket-id"];
     const { friendRequest, error } = await updatePendingFriendRequestStatus({
       requestId: req.params.requestId,
       actorId: req.user._id,
@@ -298,6 +351,24 @@ export const rejectFriendRequest = async (req, res) => {
       return res.status(error.status).json({ message: error.message });
     }
 
+    emitFriendRequestEvent(
+      toComparableId(friendRequest.receiverId?._id ?? friendRequest.receiverId),
+      {
+        scope: "incoming",
+        action: "rejected",
+        requestId: toComparableId(friendRequest._id),
+      },
+      receiverSocketIdToSkip,
+    );
+    emitFriendRequestEvent(
+      toComparableId(friendRequest.senderId?._id ?? friendRequest.senderId),
+      {
+        scope: "outgoing",
+        action: "rejected",
+        requestId: toComparableId(friendRequest._id),
+      },
+    );
+
     res.status(200).json({
       request: serializeFriendRequest(friendRequest, "senderId"),
     });
@@ -309,6 +380,7 @@ export const rejectFriendRequest = async (req, res) => {
 
 export const cancelFriendRequest = async (req, res) => {
   try {
+    const senderSocketIdToSkip = req.headers["x-socket-id"];
     const { friendRequest, error } = await updatePendingFriendRequestStatus({
       requestId: req.params.requestId,
       actorId: req.user._id,
@@ -320,6 +392,24 @@ export const cancelFriendRequest = async (req, res) => {
     if (error) {
       return res.status(error.status).json({ message: error.message });
     }
+
+    emitFriendRequestEvent(
+      toComparableId(friendRequest.senderId?._id ?? friendRequest.senderId),
+      {
+        scope: "outgoing",
+        action: "cancelled",
+        requestId: toComparableId(friendRequest._id),
+      },
+      senderSocketIdToSkip,
+    );
+    emitFriendRequestEvent(
+      toComparableId(friendRequest.receiverId?._id ?? friendRequest.receiverId),
+      {
+        scope: "incoming",
+        action: "cancelled",
+        requestId: toComparableId(friendRequest._id),
+      },
+    );
 
     res.status(200).json({
       request: serializeFriendRequest(friendRequest, "receiverId"),
