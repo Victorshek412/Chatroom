@@ -1,4 +1,7 @@
-import cloudinary, { uploadBufferToCloudinary } from "../lib/cloudinary.js";
+import {
+  uploadAssetToCloudinary,
+  uploadBufferToCloudinary,
+} from "../lib/cloudinary.js";
 import {
   buildCloudinaryAttachmentMetadata,
   getAttachmentValidationError,
@@ -14,6 +17,7 @@ import User from "../models/User.js";
 
 const LEGACY_IMAGE_NAME = "shared-image";
 const GROUP_MEMBER_SELECT = "fullName profilePicture friendId";
+const MESSAGE_REPLY_SELECT = "senderId text image attachments createdAt";
 
 const getTrimmedText = (value) =>
   typeof value === "string" ? value.trim() : "";
@@ -202,6 +206,43 @@ const serializeGroupForUser = (group, _currentUserId, latestMessage = null) => {
   };
 };
 
+const serializeReplyTarget = (message) => {
+  if (!message) {
+    return null;
+  }
+
+  return {
+    _id: message._id,
+    senderId: message.senderId,
+    text: message.text || "",
+    image: message.image || "",
+    attachments: Array.isArray(message.attachments) ? message.attachments : [],
+    createdAt: message.createdAt,
+  };
+};
+
+const serializeMessage = (message) => {
+  if (!message) {
+    return null;
+  }
+
+  const messageObject = typeof message.toObject === "function"
+    ? message.toObject()
+    : message;
+
+  return {
+    ...messageObject,
+    replyTo: serializeReplyTarget(messageObject.replyTo),
+    isPinned: Boolean(messageObject.pinnedAt),
+  };
+};
+
+const populateMessageReply = (query) =>
+  query.populate({
+    path: "replyTo",
+    select: MESSAGE_REPLY_SELECT,
+  });
+
 const emitToUserSockets = (userId, eventName, payload, skipSocketId = null) => {
   getReceiverSocketIds(userId)
     .filter((socketId) => socketId !== skipSocketId)
@@ -260,6 +301,32 @@ const emitGroupMessage = (group, message, skipSocketId = null) => {
   });
 };
 
+const emitDirectMessageUpdate = (message, skipSocketId = null) => {
+  const participantIds = [
+    toComparableId(message?.senderId),
+    toComparableId(message?.receiverId),
+  ].filter(Boolean);
+
+  Array.from(new Set(participantIds)).forEach((participantId) => {
+    emitToUserSockets(participantId, "messageUpdated", message, skipSocketId);
+  });
+};
+
+const emitGroupMessageUpdate = (group, message, skipSocketId = null) => {
+  group.memberIds.forEach((member) => {
+    const memberId = toComparableId(member?._id ?? member);
+    emitToUserSockets(
+      memberId,
+      "groupMessageUpdated",
+      {
+        groupId: toComparableId(group._id),
+        message,
+      },
+      skipSocketId,
+    );
+  });
+};
+
 const buildMessageContent = async ({ text, image, attachments }) => {
   const trimmedText = getTrimmedText(text);
   const legacyImagePayload = typeof image === "string" ? image.trim() : "";
@@ -284,7 +351,7 @@ const buildMessageContent = async ({ text, image, attachments }) => {
   let attachmentsToSave = normalizedAttachments;
 
   if (legacyImagePayload) {
-    const uploadResponse = await cloudinary.uploader.upload(legacyImagePayload);
+    const uploadResponse = await uploadAssetToCloudinary(legacyImagePayload);
     imageUrl = uploadResponse.secure_url;
 
     const legacyMimeType =
@@ -336,6 +403,76 @@ const loadAndEmitGroupUpdate = async (groupId, userId, skipSocketId = null) => {
   };
 };
 
+const loadSerializedMessageById = async (messageId) => {
+  const message = await populateMessageReply(Message.findById(messageId));
+  return serializeMessage(message);
+};
+
+const resolveDirectReplyTarget = (replyMessageId, senderId, receiverId) =>
+  Message.findOne({
+    _id: replyMessageId,
+    groupId: null,
+    $or: [
+      { senderId, receiverId },
+      { senderId: receiverId, receiverId: senderId },
+    ],
+  });
+
+const resolveGroupReplyTarget = (replyMessageId, groupId) =>
+  Message.findOne({
+    _id: replyMessageId,
+    groupId,
+  });
+
+const resolveReplyTarget = async ({
+  replyToMessageId,
+  senderId,
+  receiverId = null,
+  groupId = null,
+}) => {
+  const comparableReplyId = toComparableId(replyToMessageId);
+  if (!comparableReplyId) {
+    return { replyTo: null };
+  }
+
+  const replyTarget = groupId
+    ? await resolveGroupReplyTarget(comparableReplyId, groupId)
+    : await resolveDirectReplyTarget(comparableReplyId, senderId, receiverId);
+
+  if (!replyTarget) {
+    return { error: "Reply target was not found in this conversation." };
+  }
+
+  return { replyTo: replyTarget._id };
+};
+
+const loadAccessibleMessageForUser = async (messageId, userId) => {
+  const message = await Message.findById(messageId);
+  if (!message) {
+    return { error: "Message not found." };
+  }
+
+  if (message.groupId) {
+    const group = await loadGroupForMember(message.groupId, userId);
+    if (!group) {
+      return { error: "Message not found." };
+    }
+
+    return { message, group };
+  }
+
+  const comparableUserId = toComparableId(userId);
+  const isConversationParticipant =
+    comparableUserId === toComparableId(message.senderId) ||
+    comparableUserId === toComparableId(message.receiverId);
+
+  if (!isConversationParticipant) {
+    return { error: "Message not found." };
+  }
+
+  return { message, group: null };
+};
+
 const resolveGroupAvatarUrl = async (avatar) => {
   if (avatar == null) {
     return "";
@@ -354,7 +491,7 @@ const resolveGroupAvatarUrl = async (avatar) => {
     throw new Error("Invalid group avatar.");
   }
 
-  const uploadResponse = await cloudinary.uploader.upload(trimmedAvatar);
+  const uploadResponse = await uploadAssetToCloudinary(trimmedAvatar);
   return uploadResponse.secure_url;
 };
 
@@ -373,14 +510,14 @@ export const getMessageByUserId = async (req, res) => {
     const myId = req.user._id;
     const { id: userToChatId } = req.params;
 
-    const messages = await Message.find({
+    const messages = await populateMessageReply(Message.find({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
-    }).sort({ createdAt: 1, _id: 1 });
+    }).sort({ createdAt: 1, _id: 1 }));
 
-    res.status(200).json(messages);
+    res.status(200).json(messages.map(serializeMessage));
   } catch (error) {
     console.log("Error in getMessageByUserId", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -395,12 +532,12 @@ export const getMessagesByGroupId = async (req, res) => {
       return res.status(404).json({ message: "Group not found." });
     }
 
-    const messages = await Message.find({ groupId: group._id }).sort({
+    const messages = await populateMessageReply(Message.find({ groupId: group._id }).sort({
       createdAt: 1,
       _id: 1,
-    });
+    }));
 
-    return res.status(200).json(messages);
+    return res.status(200).json(messages.map(serializeMessage));
   } catch (error) {
     console.log("Error in getMessagesByGroupId", error);
     return res.status(500).json({ message: "Internal Server Error" });
@@ -428,7 +565,14 @@ export const uploadMessageAttachment = async (req, res) => {
 
     return res.status(201).json({ attachment });
   } catch (error) {
-    console.log("Error in uploadMessageAttachment controller:", error.message);
+    console.error("Error in uploadMessageAttachment controller:", error);
+
+    if (error.message?.startsWith("Cloudinary is not configured.")) {
+      return res.status(503).json({
+        message: "Attachment uploads are temporarily unavailable.",
+      });
+    }
+
     return res.status(500).json({ message: "Failed to upload attachment." });
   }
 };
@@ -890,23 +1034,34 @@ export const sendMessage = async (req, res) => {
       return res.status(400).json({ message: messageContent.error });
     }
 
+    const { replyTo, error: replyError } = await resolveReplyTarget({
+      replyToMessageId: req.body?.replyToMessageId,
+      senderId,
+      receiverId,
+    });
+    if (replyError) {
+      return res.status(400).json({ message: replyError });
+    }
+
     const newMessage = new Message({
       senderId,
       receiverId,
+      replyTo,
       ...messageContent,
     });
 
     await newMessage.save();
+    const serializedMessage = await loadSerializedMessageById(newMessage._id);
 
-    emitToUserSockets(receiverId, "newMessage", newMessage);
+    emitToUserSockets(receiverId, "newMessage", serializedMessage);
     emitToUserSockets(
       senderId.toString(),
       "newMessage",
-      newMessage,
+      serializedMessage,
       senderSocketIdToSkip,
     );
 
-    return res.status(201).json(newMessage);
+    return res.status(201).json(serializedMessage);
   } catch (error) {
     console.log("Error in sendMessage controller:", error.message);
     return res.status(500).json({ message: "Internal Server Error" });
@@ -928,24 +1083,66 @@ export const sendGroupMessage = async (req, res) => {
       return res.status(400).json({ message: messageContent.error });
     }
 
+    const { replyTo, error: replyError } = await resolveReplyTarget({
+      replyToMessageId: req.body?.replyToMessageId,
+      senderId,
+      groupId: group._id,
+    });
+    if (replyError) {
+      return res.status(400).json({ message: replyError });
+    }
+
     const newMessage = new Message({
       senderId,
       groupId: group._id,
+      replyTo,
       ...messageContent,
     });
 
     await newMessage.save();
     group.updatedAt = new Date();
     await group.save();
+    const serializedMessage = await loadSerializedMessageById(newMessage._id);
 
-    emitGroupMessage(group, newMessage, senderSocketIdToSkip);
+    emitGroupMessage(group, serializedMessage, senderSocketIdToSkip);
 
     return res.status(201).json({
-      group: serializeGroupForUser(group, senderId, newMessage),
-      message: newMessage,
+      group: serializeGroupForUser(group, senderId, serializedMessage),
+      message: serializedMessage,
     });
   } catch (error) {
     console.log("Error in sendGroupMessage", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+export const toggleMessagePin = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const senderSocketIdToSkip = req.headers["x-socket-id"];
+    const { messageId } = req.params;
+    const { message, group, error } = await loadAccessibleMessageForUser(messageId, userId);
+
+    if (error) {
+      return res.status(404).json({ message: error });
+    }
+
+    const isPinned = Boolean(message.pinnedAt);
+    message.pinnedAt = isPinned ? null : new Date();
+    message.pinnedById = isPinned ? null : userId;
+    await message.save();
+
+    const serializedMessage = await loadSerializedMessageById(message._id);
+
+    if (group) {
+      emitGroupMessageUpdate(group, serializedMessage, senderSocketIdToSkip);
+    } else {
+      emitDirectMessageUpdate(serializedMessage, senderSocketIdToSkip);
+    }
+
+    return res.status(200).json(serializedMessage);
+  } catch (error) {
+    console.log("Error in toggleMessagePin", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 };

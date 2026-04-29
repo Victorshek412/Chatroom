@@ -15,6 +15,7 @@ import {
   removeGroupMember,
   sendMessage,
   sendGroupMessage,
+  toggleMessagePin,
   updateGroup,
   uploadMessageAttachment,
 } from "../controllers/message.controller.js";
@@ -73,6 +74,7 @@ router.post(
   handleSingleAttachmentUpload,
   uploadMessageAttachment,
 );
+router.patch("/message/:messageId/pin", toggleMessagePin);
 router.get("/:id", getMessageByUserId);
 //explain how the above line works: This line defines a GET route for the endpoint "/:id". When a request is made to this endpoint with a user ID parameter, the protectRoute middleware is executed first to ensure that the user is authenticated. If the user is authenticated, the getMessageByUserId controller function is called to handle the request and retrieve messages based on the user ID provided in the request parameters.
 router.post("/send/:id", sendMessage);

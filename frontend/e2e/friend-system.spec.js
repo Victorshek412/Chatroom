@@ -272,6 +272,32 @@ test("supports accepting friend requests from the redesigned request drawer", as
   await expect(page.getByTestId(`friend-item-${users.bob.id}`)).toBeVisible();
 });
 
+test("shows the incoming request badge before the requests menu is opened", async ({
+  browser,
+  page,
+}) => {
+  const bobContext = await browser.newContext({ baseURL: frontendUrl });
+  const bobPage = await bobContext.newPage();
+
+  try {
+    await login(page, users.alice);
+    await login(bobPage, users.bob);
+
+    await openConversationActions(bobPage);
+    await expect(bobPage.getByTestId("chat-actions-menu")).toHaveCount(0);
+    await expect(bobPage.getByTestId("chat-actions-trigger")).not.toContainText("1");
+
+    await openAddContactModal(page);
+    await searchFriendById(page, users.bob.friendId);
+    await page.getByTestId("send-friend-request").click();
+
+    await expect(bobPage.getByTestId("chat-actions-menu")).toHaveCount(0);
+    await expect(bobPage.getByTestId("chat-actions-trigger")).toContainText("1");
+  } finally {
+    await bobContext.close();
+  }
+});
+
 test("supports rejecting friend requests without creating a friendship", async ({
   page,
 }) => {

@@ -57,6 +57,11 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
       ref: "Group",
       default: null,
     },
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
+    },
     text: {
       type: String,
       trim: true,
@@ -73,6 +78,15 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
         message: "Only one attachment is allowed per message.",
       },
     },
+    pinnedAt: {
+      type: Date,
+      default: null,
+    },
+    pinnedById: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   { timestamps: true },
 ); // Automatically manage createdAt & updatedAt fields
@@ -80,11 +94,20 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
 messageSchema.pre("validate", function ensureConversationTarget(next) {
   const hasReceiver = Boolean(this.receiverId);
   const hasGroup = Boolean(this.groupId);
+  const hasPinnedAt = Boolean(this.pinnedAt);
+  const hasPinnedBy = Boolean(this.pinnedById);
 
   if (hasReceiver === hasGroup) {
     this.invalidate(
       "receiverId",
       "Messages must target exactly one direct recipient or one group.",
+    );
+  }
+
+  if (hasPinnedAt !== hasPinnedBy) {
+    this.invalidate(
+      "pinnedAt",
+      "Pinned messages must include both pinnedAt and pinnedById.",
     );
   }
 

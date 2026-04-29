@@ -19,6 +19,7 @@ const FRONTEND_ORIGIN =
   process.env.E2E_FRONTEND_ORIGIN || "http://localhost:4173";
 const SERVER_ORIGIN = `http://localhost:${PORT}`;
 const SESSION_COOKIE = "mock_session";
+const FRIEND_REQUEST_EVENT = "friendRequestEvent";
 
 const app = express();
 const server = http.createServer(app);
@@ -528,6 +529,10 @@ const emitToUserSockets = (userId, eventName, payload, skipSocketId = null) => {
   });
 };
 
+const emitFriendRequestEvent = (userId, payload, skipSocketId = null) => {
+  emitToUserSockets(userId, FRIEND_REQUEST_EVENT, payload, skipSocketId);
+};
+
 const emitGroupCreated = (group, skipSocketId = null) => {
   group.memberIds.forEach((memberId) => {
     emitToUserSockets(
@@ -755,6 +760,7 @@ app.get("/api/friends", requireAuth, (req, res) => {
 });
 
 app.post("/api/friends/requests", requireAuth, (req, res) => {
+  const senderSocketIdToSkip = req.get("x-socket-id") || null;
   const friendId = String(req.body?.friendId || "").trim().toUpperCase();
 
   if (!friendId) {
@@ -794,6 +800,21 @@ app.post("/api/friends/requests", requireAuth, (req, res) => {
   });
   friendRequests.push(friendRequest);
 
+  emitFriendRequestEvent(receiver._id, {
+    scope: "incoming",
+    action: "created",
+    request: serializeFriendRequest(friendRequest, "senderId"),
+  });
+  emitFriendRequestEvent(
+    req.user._id,
+    {
+      scope: "outgoing",
+      action: "created",
+      request: serializeFriendRequest(friendRequest, "receiverId"),
+    },
+    senderSocketIdToSkip,
+  );
+
   return res.status(201).json({
     request: serializeFriendRequest(friendRequest, "receiverId"),
   });
@@ -828,6 +849,7 @@ app.get("/api/friends/requests/outgoing", requireAuth, (req, res) => {
 });
 
 app.post("/api/friends/requests/:requestId/cancel", requireAuth, (req, res) => {
+  const senderSocketIdToSkip = req.get("x-socket-id") || null;
   const friendRequest = friendRequests.find(
     (candidate) => candidate._id === req.params.requestId,
   );
@@ -851,12 +873,28 @@ app.post("/api/friends/requests/:requestId/cancel", requireAuth, (req, res) => {
   friendRequest.status = "rejected";
   friendRequest.updatedAt = new Date().toISOString();
 
+  emitFriendRequestEvent(
+    friendRequest.senderId,
+    {
+      scope: "outgoing",
+      action: "cancelled",
+      requestId: friendRequest._id,
+    },
+    senderSocketIdToSkip,
+  );
+  emitFriendRequestEvent(friendRequest.receiverId, {
+    scope: "incoming",
+    action: "cancelled",
+    requestId: friendRequest._id,
+  });
+
   return res.status(200).json({
     request: serializeFriendRequest(friendRequest, "receiverId"),
   });
 });
 
 app.post("/api/friends/requests/:requestId/accept", requireAuth, (req, res) => {
+  const receiverSocketIdToSkip = req.get("x-socket-id") || null;
   const friendRequest = friendRequests.find(
     (candidate) => candidate._id === req.params.requestId,
   );
@@ -880,6 +918,23 @@ app.post("/api/friends/requests/:requestId/accept", requireAuth, (req, res) => {
   friendRequest.status = "accepted";
   friendRequest.updatedAt = new Date().toISOString();
 
+  emitFriendRequestEvent(
+    friendRequest.receiverId,
+    {
+      scope: "incoming",
+      action: "accepted",
+      requestId: friendRequest._id,
+      friend: serializeFriendUser(getUserById(friendRequest.senderId)),
+    },
+    receiverSocketIdToSkip,
+  );
+  emitFriendRequestEvent(friendRequest.senderId, {
+    scope: "outgoing",
+    action: "accepted",
+    requestId: friendRequest._id,
+    friend: serializeFriendUser(getUserById(friendRequest.receiverId)),
+  });
+
   return res.status(200).json({
     request: serializeFriendRequest(friendRequest, "senderId"),
     friend: serializeFriendUser(getUserById(friendRequest.senderId)),
@@ -887,6 +942,7 @@ app.post("/api/friends/requests/:requestId/accept", requireAuth, (req, res) => {
 });
 
 app.post("/api/friends/requests/:requestId/reject", requireAuth, (req, res) => {
+  const receiverSocketIdToSkip = req.get("x-socket-id") || null;
   const friendRequest = friendRequests.find(
     (candidate) => candidate._id === req.params.requestId,
   );
@@ -909,6 +965,21 @@ app.post("/api/friends/requests/:requestId/reject", requireAuth, (req, res) => {
 
   friendRequest.status = "rejected";
   friendRequest.updatedAt = new Date().toISOString();
+
+  emitFriendRequestEvent(
+    friendRequest.receiverId,
+    {
+      scope: "incoming",
+      action: "rejected",
+      requestId: friendRequest._id,
+    },
+    receiverSocketIdToSkip,
+  );
+  emitFriendRequestEvent(friendRequest.senderId, {
+    scope: "outgoing",
+    action: "rejected",
+    requestId: friendRequest._id,
+  });
 
   return res.status(200).json({
     request: serializeFriendRequest(friendRequest, "senderId"),
