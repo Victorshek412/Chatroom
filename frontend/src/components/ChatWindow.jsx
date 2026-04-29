@@ -77,6 +77,8 @@ const getMessageSnippet = (message) => {
   return "Attachment";
 };
 
+const getMessageId = (message) => message?.id ?? message?._id ?? null;
+
 function Avatar({ initials, src = "", alt = "Avatar", size = 28 }) {
   if (src) {
     return (
@@ -419,6 +421,7 @@ function MessageActionMenu({
   const [isOpen, setIsOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const menuRef = useRef(null);
+  const messageId = getMessageId(message);
 
   useEffect(() => {
     if (!isOpen) {
@@ -461,13 +464,13 @@ function MessageActionMenu({
       label: "Reply",
       icon: <CornerUpLeftIcon size={13} strokeWidth={2} />,
       onClick: onReply,
-      testId: `reply-message-${message.id}`,
+      testId: `reply-message-${messageId}`,
     },
     {
       label: message.isPinned ? "Unpin" : "Pin",
       icon: <PinIcon size={13} strokeWidth={2} />,
       onClick: onTogglePin,
-      testId: `pin-message-${message.id}`,
+      testId: `pin-message-${messageId}`,
     },
   ];
 
@@ -475,7 +478,7 @@ function MessageActionMenu({
     <div className="relative shrink-0 self-start" ref={menuRef}>
       <button
         type="button"
-        className="rounded-lg p-1.5 opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+        className="rounded-lg p-1.5 opacity-0 transition-opacity duration-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         style={{
           color: isOpen || isHovered ? "var(--ct-text2)" : "var(--ct-icon-cw)",
           background: isOpen || isHovered ? "var(--ct-icon-hover)" : "transparent",
@@ -485,7 +488,7 @@ function MessageActionMenu({
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={() => setIsOpen((current) => !current)}
-        data-testid={`message-actions-trigger-${message.id}`}
+        data-testid={`message-actions-trigger-${messageId}`}
         aria-label="Message actions"
       >
         <MoreHorizontalIcon size={15} strokeWidth={1.9} />
@@ -503,7 +506,7 @@ function MessageActionMenu({
             border: "1px solid var(--ct-border)",
             boxShadow: "var(--ct-card-shadow)",
           }}
-          data-testid={`message-actions-menu-${message.id}`}
+          data-testid={`message-actions-menu-${messageId}`}
         >
           {menuItems.map((item) => (
             <button
@@ -726,7 +729,7 @@ function Composer({
       didSend = await onSendMessage({
         text: text.trim(),
         attachment: pendingAttachment,
-        replyToMessageId: replyToMessage?.id || null,
+        replyToMessageId: getMessageId(replyToMessage),
         replyTo: replyToMessage || null,
       });
     } catch (error) {
@@ -995,7 +998,7 @@ function ChatWindow({
     ? conversation.messages[messageCount - 1]
     : null;
   const lastMessageKey =
-    lastMessage?.id || lastMessage?._id || lastMessage?.createdAt || null;
+    getMessageId(lastMessage) || lastMessage?.createdAt || null;
 
   useEffect(() => {
     if (!messageCount || !scrollerRef.current) {
@@ -1026,7 +1029,7 @@ function ChatWindow({
   const primaryPinnedMessage = pinnedMessages[0] || null;
   const replyToMessage = replyToMessageId && conversation
     ? conversation.messages.find(
-      (message) => String(message.id) === String(replyToMessageId),
+      (message) => String(getMessageId(message)) === String(replyToMessageId),
     ) || null
     : null;
 
@@ -1130,7 +1133,7 @@ function ChatWindow({
                 type="button"
                 className="flex w-full items-center gap-2 text-left"
                 style={{ color: "var(--ct-pin-accent)" }}
-                onClick={() => scrollMessageIntoView(primaryPinnedMessage.id)}
+                onClick={() => scrollMessageIntoView(getMessageId(primaryPinnedMessage))}
                 data-testid="pinned-message-banner"
               >
                 <PinIcon size={13} strokeWidth={1.9} />
@@ -1174,6 +1177,8 @@ function ChatWindow({
               data-testid="message-list"
             >
               {conversation.messages.map((message, index) => {
+                const messageId = getMessageId(message);
+                const replyTargetId = getMessageId(message.replyTo);
                 const isOwnMessage =
                   String(message.senderId) === String(currentUser.id);
                 const previousMessage = conversation.messages[index - 1];
@@ -1200,12 +1205,16 @@ function ChatWindow({
 
                 return (
                   <div
-                    key={message.id}
+                    key={messageId || message.createdAt || index}
                     ref={(node) => {
+                      if (!messageId) {
+                        return;
+                      }
+
                       if (node) {
-                        messageRefs.current.set(String(message.id), node);
+                        messageRefs.current.set(String(messageId), node);
                       } else {
-                        messageRefs.current.delete(String(message.id));
+                        messageRefs.current.delete(String(messageId));
                       }
                     }}
                     style={{ marginTop: index === 0 ? 0 : isFirstInGroup ? 12 : 6 }}
@@ -1232,7 +1241,7 @@ function ChatWindow({
                         <MessageActionMenu
                           message={message}
                           isOwnMessage={isOwnMessage}
-                          onReply={(targetMessage) => setReplyToMessageId(targetMessage.id)}
+                          onReply={(targetMessage) => setReplyToMessageId(getMessageId(targetMessage))}
                           onTogglePin={onTogglePinMessage}
                         />
                       ) : null}
@@ -1291,8 +1300,8 @@ function ChatWindow({
                                   paddingLeft: 10,
                                   color: "var(--ct-bubble-text)",
                                 }}
-                                onClick={() => scrollMessageIntoView(message.replyTo.id)}
-                                data-testid={`reply-context-${message.id}`}
+                                onClick={() => scrollMessageIntoView(replyTargetId)}
+                                data-testid={`reply-context-${messageId}`}
                               >
                                 <p
                                   className="truncate text-[10.5px] font-semibold"
@@ -1343,7 +1352,7 @@ function ChatWindow({
                         <MessageActionMenu
                           message={message}
                           isOwnMessage={isOwnMessage}
-                          onReply={(targetMessage) => setReplyToMessageId(targetMessage.id)}
+                          onReply={(targetMessage) => setReplyToMessageId(getMessageId(targetMessage))}
                           onTogglePin={onTogglePinMessage}
                         />
                       ) : null}

@@ -94,11 +94,20 @@ const messageSchema = new mongoose.Schema( //what is a schema? A schema in Mongo
 messageSchema.pre("validate", function ensureConversationTarget(next) {
   const hasReceiver = Boolean(this.receiverId);
   const hasGroup = Boolean(this.groupId);
+  const hasPinnedAt = Boolean(this.pinnedAt);
+  const hasPinnedBy = Boolean(this.pinnedById);
 
   if (hasReceiver === hasGroup) {
     this.invalidate(
       "receiverId",
       "Messages must target exactly one direct recipient or one group.",
+    );
+  }
+
+  if (hasPinnedAt !== hasPinnedBy) {
+    this.invalidate(
+      "pinnedAt",
+      "Pinned messages must include both pinnedAt and pinnedById.",
     );
   }
 

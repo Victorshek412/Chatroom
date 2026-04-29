@@ -799,14 +799,16 @@ function ChatPage() {
   };
 
   const handleTogglePinMessage = async (message) => {
-    if (!message?.id) {
+    const messageId = normalizeId(message?._id ?? message?.id);
+
+    if (!messageId) {
       return null;
     }
 
     if (selectedGroup) {
       try {
         const res = await axiosInstance.patch(
-          `/messages/message/${message.id}/pin`,
+          `/messages/message/${messageId}/pin`,
           {},
           {
             headers: socket?.id ? { "x-socket-id": socket.id } : {},
@@ -821,7 +823,7 @@ function ChatPage() {
       }
     }
 
-    return toggleMessagePin(message.id);
+    return toggleMessagePin(messageId);
   };
 
   const handleUploadAttachment = async (file) => uploadMessageAttachment(file);

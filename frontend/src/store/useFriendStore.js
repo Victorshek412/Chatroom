@@ -322,8 +322,6 @@ export const useFriendStore = create((set, get) => ({
     const existingHandler = get().friendRequestEventHandler;
     if (existingHandler) {
       socket.off("friendRequestEvent", existingHandler);
-    } else {
-      socket.off("friendRequestEvent");
     }
 
     const handleFriendRequestEvent = (event) => {

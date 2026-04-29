@@ -370,7 +370,13 @@ export const useChatStore = create((set, get) => ({
       );
 
       set((state) => ({
-        messages: upsertMessage(state.messages, res.data),
+        messages: state.messages.some(
+          (message) =>
+            getComparableId(message._id ?? message.id) ===
+            getComparableId(res.data?._id ?? res.data?.id),
+        )
+          ? upsertMessage(state.messages, res.data)
+          : state.messages,
       }));
 
       return res.data;
