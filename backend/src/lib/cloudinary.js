@@ -7,8 +7,25 @@ cloudinary.config({
   api_secret: ENV.CLOUDINARY_API_SECRET,
 });
 
-export const uploadBufferToCloudinary = (buffer, options = {}) =>
-  new Promise((resolve, reject) => {
+const assertCloudinaryConfigured = () => {
+  if (
+    !ENV.CLOUDINARY_CLOUD_NAME ||
+    !ENV.CLOUDINARY_API_KEY ||
+    !ENV.CLOUDINARY_API_SECRET
+  ) {
+    throw new Error("Cloudinary is not configured.");
+  }
+};
+
+export const uploadAssetToCloudinary = (asset, options = {}) => {
+  assertCloudinaryConfigured();
+  return cloudinary.uploader.upload(asset, options);
+};
+
+export const uploadBufferToCloudinary = (buffer, options = {}) => {
+  assertCloudinaryConfigured();
+
+  return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       options,
       (error, result) => {
@@ -23,6 +40,7 @@ export const uploadBufferToCloudinary = (buffer, options = {}) =>
 
     uploadStream.end(buffer);
   });
+};
 
 export default cloudinary;
 // This code initializes and configures the Cloudinary SDK for use in the application.
